@@ -1,0 +1,445 @@
+/**
+ * Tool definitions for dsh-complex: five pure-math tools exposed via defineTool.
+ *   complex_parse     — parse "3+4i" / "5∠53.13°" into a full summary
+ *   complex_calc      — add / subtract / multiply / divide / conjugate / reciprocal / power
+ *   complex_convert   — polar <-> rectangular conversion
+ *   complex_functions — principal values of exp / log / sin / cos / tan / sinh / cosh / sqrt
+ *   complex_roots     — all n n-th roots of a complex number
+ *
+ * @module dsh-complex/tools
+ */
+import { defineTool } from '@deepseek-ai/dsh-tools';
+import { add, argumentDeg, argumentRad, cleanComplex, cleanValue, complexCos, complexCosh, complexExp, complexLog, complexSin, complexSinh, complexSqrt, complexTan, conjugate, divide, formatExponential, formatPolar, formatRect, integerPower, modulus, multiply, nthRoots, parseComplex, reciprocal, subtract, } from "./complex.js";
+const CALC_OPS = ['add', 'subtract', 'multiply', 'divide', 'conjugate', 'reciprocal', 'power'];
+const CONVERT_OPS = ['to_polar', 'to_rect'];
+const FUNCTION_OPS = ['exp', 'log', 'sin', 'cos', 'tan', 'sinh', 'cosh', 'sqrt'];
+const MAX_POWER = 1000;
+const MAX_ROOTS = 64;
+function buildSummary(z, places) {
+    const c = cleanComplex(z, places);
+    return {
+        re: c.re,
+        im: c.im,
+        rect: formatRect(c, places),
+        modulus: cleanValue(modulus(c), places),
+        argumentRad: cleanValue(argumentRad(c), places),
+        argumentDeg: cleanValue(argumentDeg(c), places),
+        polar: formatPolar(c, places),
+        exponential: formatExponential(c, places),
+    };
+}
+/** Summary plus a note when the argument is undefined (modulus 0). */
+function buildSummaryWithNote(z, places) {
+    const summary = buildSummary(z, places);
+    const note = summary.modulus === 0 ? 'modulus is 0: the argument is undefined, reported as 0' : undefined;
+    return { summary, note };
+}
+function renderSummary(z) {
+    return `${z.rect}  (|z| = ${z.modulus}, arg = ${z.argumentRad} rad = ${z.argumentDeg}°, polar ${z.polar})`;
+}
+function renderParse(value) {
+    const result = value;
+    if (!result.valid)
+        return `complex_parse failed: ${result.error}`;
+    const note = result.note === undefined ? '' : `\n  note: ${result.note}`;
+    return `${result.input} = ${result.rect}  (${result.form}; |z| = ${result.modulus}, arg = ${result.argumentDeg}°, conjugate ${result.conjugate})${note}`;
+}
+function renderCalc(value) {
+    const result = value;
+    if (!result.valid)
+        return `complex_calc failed: ${result.error}`;
+    const note = result.note === undefined ? '' : `\n  note: ${result.note}`;
+    return `${result.operation}: ${result.aForm} ${result.operation} ${result.bForm ?? ''} = ${renderSummary(result.result)}${note}`;
+}
+function renderConvert(value) {
+    const result = value;
+    if (!result.valid)
+        return `complex_convert failed: ${result.error}`;
+    if (result.operation === 'to_rect') {
+        return `to_rect: ${result.input} = ${result.rect}`;
+    }
+    return `to_polar: ${result.input} -> |z| = ${result.modulus}, arg = ${result.argumentRad} rad = ${result.argumentDeg}°  (${result.polar}; exponential ${result.exponential})`;
+}
+function renderFunction(value) {
+    const result = value;
+    if (!result.valid)
+        return `complex_functions failed: ${result.error}`;
+    const note = result.note === undefined ? '' : `\n  note: ${result.note}`;
+    return `${result.function}(${result.input}) = ${renderSummary(result.result)}${note}`;
+}
+function renderRoots(value) {
+    const result = value;
+    if (!result.valid)
+        return `complex_roots failed: ${result.error}`;
+    const list = result.roots.map((z) => `  ${z.rect}`).join('\n');
+    return `the ${result.n} ${result.n === 1 ? 'root' : 'roots'} of ${result.input}:\n${list}`;
+}
+/** Build all five complex tool definitions from the resolved config. */
+export function buildComplexTools(config) {
+    const places = config.roundPlaces;
+    const complex_parse = defineTool({
+        name: 'complex_parse',
+        description: 'Parse a complex number from string form and report its full identity: rectangular and polar forms, '
+            + 'modulus, argument (radians and degrees), exponential form and conjugate. Accepts "a+bi" style input with either '
+            + 'i or j ("3+4i", "-2i", "1e3+2e-1j") and polar form "r∠θ°" with the angle in degrees ("5∠53.13°"). Use this '
+            + 'instead of converting complex forms by hand. Pure arithmetic, no external calls.',
+        parameters: {
+            input: { type: 'string', required: true, description: 'Complex number as a string, e.g. "3+4i", "-2i", "5∠53.13°".' },
+        },
+        output: {
+            schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                    valid: { type: 'boolean', required: true },
+                    error: { type: 'string' },
+                    input: { type: 'string' },
+                    form: { type: 'string' },
+                    re: { type: 'number' },
+                    im: { type: 'number' },
+                    rect: { type: 'string' },
+                    modulus: { type: 'number' },
+                    argumentRad: { type: 'number' },
+                    argumentDeg: { type: 'number' },
+                    polar: { type: 'string' },
+                    exponential: { type: 'string' },
+                    conjugate: { type: 'string' },
+                    note: { type: 'string' },
+                },
+            },
+            render: (_args, value) => [{ type: 'text', text: renderParse(value) }],
+        },
+        async execute(args) {
+            const parsed = parseComplex(args.input, places);
+            if (!parsed.valid)
+                return { valid: false, error: parsed.error };
+            const { summary, note } = buildSummaryWithNote(parsed.z, places);
+            const out = {
+                valid: true,
+                input: args.input,
+                form: parsed.form,
+                re: summary.re,
+                im: summary.im,
+                rect: summary.rect,
+                modulus: summary.modulus,
+                argumentRad: summary.argumentRad,
+                argumentDeg: summary.argumentDeg,
+                polar: summary.polar,
+                exponential: summary.exponential,
+                conjugate: formatRect(conjugate(parsed.z), places),
+            };
+            if (note !== undefined)
+                out.note = note;
+            return out;
+        },
+    });
+    const complex_calc = defineTool({
+        name: 'complex_calc',
+        description: 'Compute one complex arithmetic operation: add, subtract, multiply, divide, conjugate, reciprocal, '
+            + 'or integer power (De Moivre, exponent range -1000..1000). Operands are strings in "a+bi" or polar "r∠θ°" form; '
+            + 'the result comes back in rectangular, polar and exponential forms with modulus and argument. Use this for '
+            + 'exact complex arithmetic instead of doing i² = -1 bookkeeping by hand. Pure arithmetic, no external calls.',
+        parameters: {
+            a: { type: 'string', required: true, description: 'First operand, e.g. "3+4i" or "5∠53.13°".' },
+            b: { type: 'string', description: 'Second operand (required for add/subtract/multiply/divide).' },
+            exponent: { type: 'number', description: `Integer exponent for power (${-MAX_POWER}..${MAX_POWER}); required for the power operation.` },
+            operation: { type: 'string', required: true, enum: [...CALC_OPS], description: 'Operation to compute.' },
+        },
+        output: {
+            schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                    valid: { type: 'boolean', required: true },
+                    operation: { type: 'string', required: true },
+                    error: { type: 'string' },
+                    aForm: { type: 'string' },
+                    bForm: { type: 'string' },
+                    result: {
+                        type: 'object',
+                        additionalProperties: false,
+                        properties: {
+                            re: { type: 'number', required: true },
+                            im: { type: 'number', required: true },
+                            rect: { type: 'string', required: true },
+                            modulus: { type: 'number', required: true },
+                            argumentRad: { type: 'number', required: true },
+                            argumentDeg: { type: 'number', required: true },
+                            polar: { type: 'string', required: true },
+                            exponential: { type: 'string', required: true },
+                        },
+                    },
+                    note: { type: 'string' },
+                },
+            },
+            render: (_args, value) => [{ type: 'text', text: renderCalc(value) }],
+        },
+        async execute(args) {
+            const pa = parseComplex(args.a, places);
+            if (!pa.valid)
+                return { valid: false, operation: args.operation, error: `a: ${pa.error}` };
+            if (args.operation === 'power') {
+                const n = args.exponent;
+                if (typeof n !== 'number' || !Number.isInteger(n)) {
+                    return { valid: false, operation: 'power', error: 'power requires an integer exponent' };
+                }
+                const powered = integerPower(pa.z, n, MAX_POWER);
+                if (powered === null)
+                    return { valid: false, operation: 'power', error: `exponent magnitude must be <= ${MAX_POWER}` };
+                const { summary, note } = buildSummaryWithNote(powered, places);
+                const out = { valid: true, operation: 'power', aForm: formatRect(pa.z, places) };
+                out.result = summary;
+                if (note !== undefined)
+                    out.note = note;
+                return out;
+            }
+            if (args.operation === 'conjugate') {
+                const { summary } = buildSummaryWithNote(conjugate(pa.z), places);
+                return { valid: true, operation: 'conjugate', aForm: formatRect(pa.z, places), result: summary };
+            }
+            if (args.operation === 'reciprocal') {
+                const inv = reciprocal(pa.z);
+                if (inv === null)
+                    return { valid: false, operation: 'reciprocal', error: 'reciprocal of zero is undefined' };
+                const { summary } = buildSummaryWithNote(inv, places);
+                return { valid: true, operation: 'reciprocal', aForm: formatRect(pa.z, places), result: summary };
+            }
+            if (args.b === undefined) {
+                return { valid: false, operation: args.operation, error: 'b is required for add/subtract/multiply/divide' };
+            }
+            const pb = parseComplex(args.b, places);
+            if (!pb.valid)
+                return { valid: false, operation: args.operation, error: `b: ${pb.error}` };
+            const aForm = formatRect(pa.z, places);
+            const bForm = formatRect(pb.z, places);
+            let z = null;
+            if (args.operation === 'add')
+                z = add(pa.z, pb.z);
+            else if (args.operation === 'subtract')
+                z = subtract(pa.z, pb.z);
+            else if (args.operation === 'multiply')
+                z = multiply(pa.z, pb.z);
+            else if (args.operation === 'divide')
+                z = divide(pa.z, pb.z);
+            else
+                return { valid: false, operation: args.operation, error: `unknown operation: ${args.operation}` };
+            if (z === null)
+                return { valid: false, operation: args.operation, error: 'division by zero: the denominator has modulus 0' };
+            const { summary, note } = buildSummaryWithNote(z, places);
+            const out = { valid: true, operation: args.operation, aForm, bForm, result: summary };
+            if (note !== undefined)
+                out.note = note;
+            return out;
+        },
+    });
+    const complex_convert = defineTool({
+        name: 'complex_convert',
+        description: 'Convert a complex number between rectangular and polar form. to_polar takes any form and returns '
+            + 'modulus, argument in radians and degrees, polar ("5∠53.13°") and exponential ("5·e^(i·0.9273)") notation. '
+            + 'to_rect takes polar input "r∠θ°" (angle in degrees) and returns the rectangular "a+bi" form. Pure arithmetic, '
+            + 'no external calls.',
+        parameters: {
+            input: { type: 'string', required: true, description: 'Complex number as a string: "3+4i" for to_polar, "5∠53.13°" for to_rect.' },
+            operation: { type: 'string', required: true, enum: [...CONVERT_OPS], description: 'Direction of the conversion.' },
+        },
+        output: {
+            schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                    valid: { type: 'boolean', required: true },
+                    operation: { type: 'string', required: true },
+                    error: { type: 'string' },
+                    input: { type: 'string' },
+                    modulus: { type: 'number' },
+                    argumentRad: { type: 'number' },
+                    argumentDeg: { type: 'number' },
+                    polar: { type: 'string' },
+                    exponential: { type: 'string' },
+                    re: { type: 'number' },
+                    im: { type: 'number' },
+                    rect: { type: 'string' },
+                    note: { type: 'string' },
+                },
+            },
+            render: (_args, value) => [{ type: 'text', text: renderConvert(value) }],
+        },
+        async execute(args) {
+            const parsed = parseComplex(args.input, places);
+            if (!parsed.valid)
+                return { valid: false, operation: args.operation, error: parsed.error };
+            if (args.operation === 'to_rect') {
+                if (parsed.form !== 'polar') {
+                    return {
+                        valid: false,
+                        operation: 'to_rect',
+                        error: 'to_rect requires polar-form input like "5∠53.13°"; the given input is already rectangular — use to_polar to go the other way',
+                    };
+                }
+                const { summary, note } = buildSummaryWithNote(parsed.z, places);
+                const out = {
+                    valid: true,
+                    operation: 'to_rect',
+                    input: args.input,
+                    re: summary.re,
+                    im: summary.im,
+                    rect: summary.rect,
+                };
+                if (note !== undefined)
+                    out.note = note;
+                return out;
+            }
+            if (args.operation === 'to_polar') {
+                const { summary, note } = buildSummaryWithNote(parsed.z, places);
+                const out = {
+                    valid: true,
+                    operation: 'to_polar',
+                    input: args.input,
+                    modulus: summary.modulus,
+                    argumentRad: summary.argumentRad,
+                    argumentDeg: summary.argumentDeg,
+                    polar: summary.polar,
+                    exponential: summary.exponential,
+                };
+                if (note !== undefined)
+                    out.note = note;
+                return out;
+            }
+            return { valid: false, operation: args.operation, error: `unknown operation: ${args.operation}` };
+        },
+    });
+    const complex_functions = defineTool({
+        name: 'complex_functions',
+        description: 'Evaluate a standard complex function of a complex argument and return the principal value: exp, log, '
+            + 'sin, cos, tan, sinh, cosh, or sqrt. The input is a string ("3+4i", "i", "5∠53.13°"). Principal branch '
+            + 'conventions: log returns ln|z| + i·arg(z) with arg in (-π, π], sqrt returns the root with argument in (-π/2, π/2]. '
+            + 'Use this for correct complex function values (e.g. exp(iπ) = -1, log(-1) = iπ) instead of hand-deriving Euler formulas. '
+            + 'Pure arithmetic, no external calls.',
+        parameters: {
+            input: { type: 'string', required: true, description: 'Complex argument as a string, e.g. "i", "3+4i", "-1".' },
+            operation: { type: 'string', required: true, enum: [...FUNCTION_OPS], description: 'Function to evaluate.' },
+        },
+        output: {
+            schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                    valid: { type: 'boolean', required: true },
+                    function: { type: 'string', required: true },
+                    error: { type: 'string' },
+                    input: { type: 'string' },
+                    result: {
+                        type: 'object',
+                        additionalProperties: false,
+                        properties: {
+                            re: { type: 'number', required: true },
+                            im: { type: 'number', required: true },
+                            rect: { type: 'string', required: true },
+                            modulus: { type: 'number', required: true },
+                            argumentRad: { type: 'number', required: true },
+                            argumentDeg: { type: 'number', required: true },
+                            polar: { type: 'string', required: true },
+                            exponential: { type: 'string', required: true },
+                        },
+                    },
+                    note: { type: 'string' },
+                },
+            },
+            render: (_args, value) => [{ type: 'text', text: renderFunction(value) }],
+        },
+        async execute(args) {
+            const parsed = parseComplex(args.input, places);
+            if (!parsed.valid)
+                return { valid: false, function: args.operation, error: parsed.error };
+            const z = parsed.z;
+            let out = null;
+            if (args.operation === 'exp')
+                out = complexExp(z);
+            else if (args.operation === 'log')
+                out = complexLog(z);
+            else if (args.operation === 'sin')
+                out = complexSin(z);
+            else if (args.operation === 'cos')
+                out = complexCos(z);
+            else if (args.operation === 'tan')
+                out = complexTan(z);
+            else if (args.operation === 'sinh')
+                out = complexSinh(z);
+            else if (args.operation === 'cosh')
+                out = complexCosh(z);
+            else if (args.operation === 'sqrt')
+                out = complexSqrt(z);
+            else
+                return { valid: false, function: args.operation, error: `unknown function: ${args.operation}` };
+            if (out === null)
+                return { valid: false, function: args.operation, error: 'log is undefined at zero' };
+            const { summary, note } = buildSummaryWithNote(out, places);
+            const branchNote = args.operation === 'log'
+                ? 'principal branch: arg in (-π, π]'
+                : args.operation === 'sqrt'
+                    ? 'principal square root: argument in (-π/2, π/2]'
+                    : undefined;
+            const result = {
+                valid: true,
+                function: args.operation,
+                input: formatRect(z, places),
+                result: summary,
+            };
+            if (note !== undefined || branchNote !== undefined) {
+                result.note = [note, branchNote].filter((n) => n !== undefined).join('; ');
+            }
+            return result;
+        },
+    });
+    const complex_roots = defineTool({
+        name: 'complex_roots',
+        description: `Compute all n n-th roots of a complex number (n = 1..${MAX_ROOTS}). Returns the complete root set `
+            + 'r^(1/n)·(cos((θ+2πk)/n) + i·sin((θ+2πk)/n)) for k = 0..n-1 with θ the principal argument, listed in increasing '
+            + 'k order starting from the principal root. Use this for roots of unity (1^(1/4) = {1, i, -1, -i}) or any '
+            + 'polynomial root extraction. Pure arithmetic, no external calls.',
+        parameters: {
+            input: { type: 'string', required: true, description: 'Complex number as a string, e.g. "1", "-8", "3+4i".' },
+            n: { type: 'number', required: true, description: `Number of roots (1..${MAX_ROOTS}).` },
+        },
+        output: {
+            schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                    valid: { type: 'boolean', required: true },
+                    error: { type: 'string' },
+                    input: { type: 'string' },
+                    n: { type: 'number' },
+                    roots: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            additionalProperties: false,
+                            properties: {
+                                re: { type: 'number', required: true },
+                                im: { type: 'number', required: true },
+                                rect: { type: 'string', required: true },
+                            },
+                        },
+                    },
+                },
+            },
+            render: (_args, value) => [{ type: 'text', text: renderRoots(value) }],
+        },
+        async execute(args) {
+            const parsed = parseComplex(args.input, places);
+            if (!parsed.valid)
+                return { valid: false, error: parsed.error };
+            if (!Number.isInteger(args.n) || args.n < 1 || args.n > MAX_ROOTS) {
+                return { valid: false, error: `n must be an integer between 1 and ${MAX_ROOTS}` };
+            }
+            const roots = nthRoots(parsed.z, args.n).map((z) => {
+                const c = cleanComplex(z, places);
+                return { re: c.re, im: c.im, rect: formatRect(c, places) };
+            });
+            return { valid: true, input: args.input, n: args.n, roots };
+        },
+    });
+    return { complex_parse, complex_calc, complex_convert, complex_functions, complex_roots };
+}
+//# sourceMappingURL=tools.js.map
