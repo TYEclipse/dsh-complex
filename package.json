@@ -1,6 +1,6 @@
 {
   "name": "dsh-complex",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Complex-number math toolbox for DeepSeek Harness (dsh): parse and format rectangular/polar/exponential forms, arithmetic (add, subtract, multiply, divide, conjugate, reciprocal, integer power), polar conversion, principal values of exp/log/sin/cos/tan/sinh/cosh/sqrt, and complete n-th roots — zero runtime dependencies",
   "type": "module",
   "main": "dist/index.js",
