@@ -1,6 +1,8 @@
 /**
  * Tests for tool definition assembly, config resolution, execute paths,
  * schema-level enum rejection, and lossless-JSON discipline.
+ *
+ * ORACLE: test/oracle/anchors.py
  */
 
 import { describe, expect, it } from 'vitest'
@@ -41,9 +43,9 @@ describe('resolveConfig', () => {
 describe('buildComplexTools', () => {
   const tools = buildComplexTools(resolveConfig({}))
 
-  it('exposes all five tools under their canonical names', () => {
+  it('exposes all six tools under their canonical names', () => {
     expect(Object.keys(tools).sort()).toEqual(
-      ['complex_calc', 'complex_convert', 'complex_functions', 'complex_parse', 'complex_roots'].sort(),
+      ['complex_calc', 'complex_convert', 'complex_functions', 'complex_parse', 'complex_quadratic', 'complex_roots'].sort(),
     )
   })
 
@@ -306,5 +308,207 @@ describe('complex_roots execute', () => {
     const text = renderText(value, tools.complex_roots, { input: '1', n: 4 })
     expect(text).toContain('the 4 roots of 1')
     expect(text).toContain('-i')
+  })
+})
+
+describe('complex_calc pow (general complex power, oracle anchors)', () => {
+  const tools = buildComplexTools(resolveConfig({}))
+  const run = tools.complex_calc.execute as unknown as Exec
+
+  it('(1+i)^(1-i) = 2.8078792973+1.3178651729i', async () => {
+    const result = await run({ a: '1+i', b: '1-i', operation: 'pow' }) as Record<string, unknown>
+    assertNoUndefined(result)
+    expect(result.valid).toBe(true)
+    const r = result.result as Record<string, unknown>
+    expect(r.re).toBeCloseTo(2.8078792973, 8)
+    expect(r.im).toBeCloseTo(1.3178651729, 8)
+  })
+
+  it('i^i = 0.2078795764 (Euler, real)', async () => {
+    const result = await run({ a: 'i', b: 'i', operation: 'pow' }) as Record<string, unknown>
+    const r = result.result as Record<string, unknown>
+    expect(r.re).toBeCloseTo(0.2078795764, 8)
+    expect(r.im).toBeCloseTo(0, 8)
+    expect(r.rect).toBe('0.2078795764')
+  })
+
+  it('2^(1+i) = 1.5384778027+1.2779225526i', async () => {
+    const result = await run({ a: '2', b: '1+i', operation: 'pow' }) as Record<string, unknown>
+    const r = result.result as Record<string, unknown>
+    expect(r.re).toBeCloseTo(1.5384778027, 8)
+    expect(r.im).toBeCloseTo(1.2779225526, 8)
+  })
+
+  it('(-1)^0.5 = i on the principal branch', async () => {
+    const result = await run({ a: '-1', b: '0.5', operation: 'pow' }) as Record<string, unknown>
+    const r = result.result as Record<string, unknown>
+    expect(r.rect).toBe('i')
+  })
+
+  it('requires the exponent b', async () => {
+    const result = await run({ a: '2', operation: 'pow' }) as Record<string, unknown>
+    expect(result.valid).toBe(false)
+    expect(result.error as string).toContain('exponent')
+  })
+
+  it('0^(positive real) = 0, but 0^0 and 0^(negative) are honest errors', async () => {
+    const ok = await run({ a: '0', b: '2', operation: 'pow' }) as Record<string, unknown>
+    expect(ok.valid).toBe(true)
+    expect((ok.result as Record<string, unknown>).rect).toBe('0')
+    for (const b of ['0', '-1', 'i']) {
+      const bad = await run({ a: '0', b, operation: 'pow' }) as Record<string, unknown>
+      assertNoUndefined(bad)
+      expect(bad.valid).toBe(false)
+    }
+  })
+
+  it('renders the power result', async () => {
+    const value = await run({ a: 'i', b: 'i', operation: 'pow' })
+    const text = renderText(value, tools.complex_calc, { a: 'i', b: 'i', operation: 'pow' })
+    expect(text).toContain('pow')
+    expect(text).toContain('0.2078795764')
+  })
+})
+
+describe('complex_functions inverse family (cmath branch anchors)', () => {
+  const tools = buildComplexTools(resolveConfig({}))
+  const run = tools.complex_functions.execute as unknown as Exec
+
+  it('asin(1+i) with a branch note', async () => {
+    const result = await run({ input: '1+i', operation: 'asin' }) as Record<string, unknown>
+    assertNoUndefined(result)
+    expect(result.valid).toBe(true)
+    expect(result.function).toBe('asin')
+    const r = result.result as Record<string, unknown>
+    expect(r.re).toBeCloseTo(0.6662394325, 8)
+    expect(r.im).toBeCloseTo(1.0612750619, 8)
+    expect((result.note as string)).toContain('principal branch')
+  })
+
+  it('asin(2) crosses the real cut to π/2 + 1.3169578969i', async () => {
+    const result = await run({ input: '2', operation: 'asin' }) as Record<string, unknown>
+    const r = result.result as Record<string, unknown>
+    expect(r.re).toBeCloseTo(1.5707963268, 8)
+    expect(r.im).toBeCloseTo(1.3169578969, 8)
+  })
+
+  it('acos / atan / asinh / acosh / atanh anchors on 1+i and 2i', async () => {
+    const acos = await run({ input: '1+i', operation: 'acos' }) as Record<string, unknown>
+    const ar = acos.result as Record<string, unknown>
+    expect(ar.re).toBeCloseTo(0.9045568943, 8)
+    expect(ar.im).toBeCloseTo(-1.0612750619, 8)
+
+    const atan = await run({ input: '2i', operation: 'atan' }) as Record<string, unknown>
+    const tr = atan.result as Record<string, unknown>
+    expect(tr.re).toBeCloseTo(1.5707963268, 8)
+    expect(tr.im).toBeCloseTo(0.5493061443, 8)
+
+    const asinh = await run({ input: '1+i', operation: 'asinh' }) as Record<string, unknown>
+    const shr = asinh.result as Record<string, unknown>
+    expect(shr.re).toBeCloseTo(1.0612750619, 8)
+    expect(shr.im).toBeCloseTo(0.6662394325, 8)
+
+    const acosh = await run({ input: '-2', operation: 'acosh' }) as Record<string, unknown>
+    const chr = acosh.result as Record<string, unknown>
+    expect(chr.re).toBeCloseTo(1.3169578969, 8)
+    expect(chr.im).toBeCloseTo(3.1415926536, 8)
+
+    const atanh = await run({ input: '1+i', operation: 'atanh' }) as Record<string, unknown>
+    const thr = atanh.result as Record<string, unknown>
+    expect(thr.re).toBeCloseTo(0.4023594781, 8)
+    expect(thr.im).toBeCloseTo(1.0172219679, 8)
+  })
+
+  it('branch cuts through the tool path (parser yields re = +0 for "3i")', async () => {
+    const asin3 = await run({ input: '3', operation: 'asin' }) as Record<string, unknown>
+    const a3 = asin3.result as Record<string, unknown>
+    expect(a3.re).toBeCloseTo(1.5707963268, 8)
+    expect(a3.im).toBeCloseTo(1.762747174, 8)
+
+    const atanNeg = await run({ input: '-2i', operation: 'atan' }) as Record<string, unknown>
+    const tn = atanNeg.result as Record<string, unknown>
+    expect(tn.re).toBeCloseTo(1.5707963268, 8)
+    expect(tn.im).toBeCloseTo(-0.5493061443, 8)
+
+    const atanh4 = await run({ input: '4', operation: 'atanh' }) as Record<string, unknown>
+    const th = atanh4.result as Record<string, unknown>
+    expect(th.re).toBeCloseTo(0.2554128119, 8)
+    expect(th.im).toBeCloseTo(1.5707963268, 8)
+  })
+
+  it('atan(±i) and atanh(±1) report an honest, specific error', async () => {
+    const atan = await run({ input: 'i', operation: 'atan' }) as Record<string, unknown>
+    assertNoUndefined(atan)
+    expect(atan.valid).toBe(false)
+    expect(atan.error as string).toContain('undefined')
+
+    const atanh = await run({ input: '1', operation: 'atanh' }) as Record<string, unknown>
+    expect(atanh.valid).toBe(false)
+    expect(atanh.error as string).toContain('undefined')
+  })
+})
+
+describe('complex_quadratic execute (oracle anchors)', () => {
+  const tools = buildComplexTools(resolveConfig({}))
+  const run = tools.complex_quadratic.execute as unknown as Exec
+
+  it('z^2 + i z + 1 = 0 (complex coefficients) with zero residuals and Vieta invariants', async () => {
+    const result = await run({ a: '1', b: 'i', c: '1' }) as Record<string, unknown>
+    assertNoUndefined(result)
+    expect(result.valid).toBe(true)
+    expect(result.degree).toBe(2)
+    expect(result.count).toBe(2)
+    expect((result.discriminant as Record<string, unknown>).rect).toBe('-5')
+    expect((result.sum as Record<string, unknown>).rect).toBe('-i')
+    expect((result.product as Record<string, unknown>).rect).toBe('1')
+    const roots = result.roots as { rect: string; residual: number; re: number; im: number }[]
+    expect(roots[0]?.rect).toBe('0.6180339887i')
+    expect(roots[1]?.rect).toBe('-1.6180339887i')
+    for (const root of roots) expect(root.residual).toBe(0)
+  })
+
+  it('2z^2 - 4z + 5 = 0 -> 1 ± 1.2247448714i', async () => {
+    const result = await run({ a: '2', b: '-4', c: '5' }) as Record<string, unknown>
+    const roots = result.roots as { re: number; im: number; rect: string }[]
+    expect(roots[0]?.re).toBeCloseTo(1, 8)
+    expect(roots[0]?.im).toBeCloseTo(1.2247448714, 8)
+    expect(roots[1]?.rect).toBe('1-1.2247448714i')
+  })
+
+  it('a = 0 degrades to a linear equation with a note', async () => {
+    const result = await run({ a: '0', b: '2', c: '-4' }) as Record<string, unknown>
+    assertNoUndefined(result)
+    expect(result.valid).toBe(true)
+    expect(result.degree).toBe(1)
+    expect(result.count).toBe(1)
+    expect((result.roots as { rect: string }[])[0]?.rect).toBe('2')
+    expect(result.note as string).toContain('linear')
+  })
+
+  it('a = b = 0 says "every z" (c = 0) or "no solution" (c ≠ 0) instead of inventing roots', async () => {
+    const every = await run({ a: '0', b: '0', c: '0' }) as Record<string, unknown>
+    assertNoUndefined(every)
+    expect(every.degree).toBe(0)
+    expect(every.count).toBe(0)
+    expect(every.note as string).toContain('every complex number')
+
+    const none = await run({ a: '0', b: '0', c: '1' }) as Record<string, unknown>
+    expect(none.degree).toBe(0)
+    expect(none.note as string).toContain('no complex number')
+  })
+
+  it('rejects a malformed coefficient with a labelled error', async () => {
+    const result = await run({ a: '1', b: 'oops', c: '1' }) as Record<string, unknown>
+    assertNoUndefined(result)
+    expect(result.valid).toBe(false)
+    expect(result.error as string).toMatch(/^b:/)
+  })
+
+  it('renders the equation, roots and invariants', async () => {
+    const value = await run({ a: '1', b: '-2', c: '2' })
+    const text = renderText(value, tools.complex_quadratic, { a: '1', b: '-2', c: '2' })
+    expect(text).toContain('1 z^2 + -2 z + 2 = 0')
+    expect(text).toContain('1+1i')
+    expect(text).toContain('product c/a = 2')
   })
 })

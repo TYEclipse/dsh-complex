@@ -1,10 +1,11 @@
 /**
- * Tool definitions for dsh-complex: five pure-math tools exposed via defineTool.
- *   complex_parse     — parse "3+4i" / "5∠53.13°" into a full summary
- *   complex_calc      — add / subtract / multiply / divide / conjugate / reciprocal / power
- *   complex_convert   — polar <-> rectangular conversion
- *   complex_functions — principal values of exp / log / sin / cos / tan / sinh / cosh / sqrt
- *   complex_roots     — all n n-th roots of a complex number
+ * Tool definitions for dsh-complex: six pure-math tools exposed via defineTool.
+ *   complex_parse      — parse "3+4i" / "5∠53.13°" into a full summary
+ *   complex_calc       — add / subtract / multiply / divide / conjugate / reciprocal / power / pow
+ *   complex_convert    — polar <-> rectangular conversion
+ *   complex_functions  — principal values of the elementary and inverse functions
+ *   complex_roots      — all n n-th roots of a complex number
+ *   complex_quadratic  — solve a z² + b z + c = 0 over the complex numbers
  *
  * @module dsh-complex/tools
  */
@@ -16,10 +17,17 @@ import {
   argumentRad,
   cleanComplex,
   cleanValue,
+  complexAcos,
+  complexAcosh,
+  complexAsin,
+  complexAsinh,
+  complexAtan,
+  complexAtanh,
   complexCos,
   complexCosh,
   complexExp,
   complexLog,
+  complexPow,
   complexSin,
   complexSinh,
   complexSqrt,
@@ -35,6 +43,7 @@ import {
   nthRoots,
   parseComplex,
   reciprocal,
+  solveQuadratic,
   subtract,
   type Complex,
 } from './complex.ts'
@@ -46,15 +55,18 @@ export interface ToolSet {
   complex_convert: ToolDefinition
   complex_functions: ToolDefinition
   complex_roots: ToolDefinition
+  complex_quadratic: ToolDefinition
 }
 
-type CalcOp = 'add' | 'subtract' | 'multiply' | 'divide' | 'conjugate' | 'reciprocal' | 'power'
+type CalcOp = 'add' | 'subtract' | 'multiply' | 'divide' | 'conjugate' | 'reciprocal' | 'power' | 'pow'
 type ConvertOp = 'to_polar' | 'to_rect'
 type FunctionOp = 'exp' | 'log' | 'sin' | 'cos' | 'tan' | 'sinh' | 'cosh' | 'sqrt'
+  | 'asin' | 'acos' | 'atan' | 'asinh' | 'acosh' | 'atanh'
 
-const CALC_OPS: readonly CalcOp[] = ['add', 'subtract', 'multiply', 'divide', 'conjugate', 'reciprocal', 'power']
+const CALC_OPS: readonly CalcOp[] = ['add', 'subtract', 'multiply', 'divide', 'conjugate', 'reciprocal', 'power', 'pow']
 const CONVERT_OPS: readonly ConvertOp[] = ['to_polar', 'to_rect']
-const FUNCTION_OPS: readonly FunctionOp[] = ['exp', 'log', 'sin', 'cos', 'tan', 'sinh', 'cosh', 'sqrt']
+const FUNCTION_OPS: readonly FunctionOp[] = ['exp', 'log', 'sin', 'cos', 'tan', 'sinh', 'cosh', 'sqrt',
+  'asin', 'acos', 'atan', 'asinh', 'acosh', 'atanh']
 
 const MAX_POWER = 1000
 const MAX_ROOTS = 64
@@ -203,7 +215,53 @@ function renderRoots(value: unknown): string {
   return `the ${result.n} ${result.n === 1 ? 'root' : 'roots'} of ${result.input}:\n${list}`
 }
 
-/** Build all five complex tool definitions from the resolved config. */
+/** ---- complex_quadratic ---- */
+
+interface QuadraticPoint {
+  re: number
+  im: number
+  rect: string
+}
+
+interface QuadraticRoot extends QuadraticPoint {
+  residual: number
+}
+
+interface QuadraticResult {
+  valid: boolean
+  error?: string
+  a?: string
+  b?: string
+  c?: string
+  degree?: number
+  discriminant?: QuadraticPoint
+  roots?: QuadraticRoot[]
+  count?: number
+  sum?: QuadraticPoint
+  product?: QuadraticPoint
+  note?: string
+}
+
+function pointOf(z: Complex, places: number): QuadraticPoint {
+  const c = cleanComplex(z, places)
+  return { re: c.re, im: c.im, rect: formatRect(c, places) }
+}
+
+function renderQuadratic(value: unknown): string {
+  const result = value as QuadraticResult
+  if (!result.valid) return `complex_quadratic failed: ${result.error}`
+  const equation = `${result.a} z^2 + ${result.b} z + ${result.c} = 0`
+  const note = result.note === undefined ? '' : `\n  note: ${result.note}`
+  if (result.degree === 0) return `${equation}: no roots${note}`
+  const roots = (result.roots as QuadraticRoot[]).map((r) => `  ${r.rect}  (residual |az^2+bz+c| = ${r.residual})`).join('\n')
+  if (result.degree === 1) {
+    return `${equation} is linear (a = 0):\n${roots}${note}`
+  }
+  return `${equation}  (discriminant ${(result.discriminant as QuadraticPoint).rect}, sum -b/a = ${(result.sum as QuadraticPoint).rect}, `
+    + `product c/a = ${(result.product as QuadraticPoint).rect})\n${result.count} roots:\n${roots}${note}`
+}
+
+/** Build all six complex tool definitions from the resolved config. */
 export function buildComplexTools(config: ResolvedConfig): ToolSet {
   const places = config.roundPlaces
 
@@ -265,12 +323,13 @@ export function buildComplexTools(config: ResolvedConfig): ToolSet {
   const complex_calc = defineTool({
     name: 'complex_calc',
     description: 'Compute one complex arithmetic operation: add, subtract, multiply, divide, conjugate, reciprocal, '
-      + 'or integer power (De Moivre, exponent range -1000..1000). Operands are strings in "a+bi" or polar "r∠θ°" form; '
-      + 'the result comes back in rectangular, polar and exponential forms with modulus and argument. Use this for '
-      + 'exact complex arithmetic instead of doing i² = -1 bookkeeping by hand. Pure arithmetic, no external calls.',
+      + 'integer power (De Moivre, exponent range -1000..1000), or general complex power pow (a^b = exp(b·log a), '
+      + 'principal branch). Operands are strings in "a+bi" or polar "r∠θ°" form; for pow both a (base) and b (exponent) '
+      + 'may be complex. The result comes back in rectangular, polar and exponential forms with modulus and argument. '
+      + 'Use this for exact complex arithmetic instead of doing i² = -1 bookkeeping by hand. Pure arithmetic, no external calls.',
     parameters: {
       a: { type: 'string', required: true, description: 'First operand, e.g. "3+4i" or "5∠53.13°".' },
-      b: { type: 'string', description: 'Second operand (required for add/subtract/multiply/divide).' },
+      b: { type: 'string', description: 'Second operand (required for add/subtract/multiply/divide and for pow, where it is the complex exponent).' },
       exponent: { type: 'number', description: `Integer exponent for power (${-MAX_POWER}..${MAX_POWER}); required for the power operation.` },
       operation: { type: 'string', required: true, enum: [...CALC_OPS], description: 'Operation to compute.' },
     },
@@ -306,6 +365,36 @@ export function buildComplexTools(config: ResolvedConfig): ToolSet {
     async execute(args: { a: string; b?: string; exponent?: number; operation: string }): Promise<CalcResult> {
       const pa = parseComplex(args.a, places)
       if (!pa.valid) return { valid: false, operation: args.operation, error: `a: ${pa.error}` }
+
+      if (args.operation === 'pow') {
+        if (args.b === undefined) return { valid: false, operation: 'pow', error: 'pow requires b, the complex exponent (a^b)' }
+        const pb = parseComplex(args.b, places)
+        if (!pb.valid) return { valid: false, operation: 'pow', error: `b: ${pb.error}` }
+        const aForm = formatRect(pa.z, places)
+        const bForm = formatRect(pb.z, places)
+
+        if (pa.z.re === 0 && pa.z.im === 0) {
+          // 0^b is defined only for real b > 0 (and equals 0); everything else has no principal value.
+          if (pb.z.im === 0 && pb.z.re > 0) {
+            const zero = buildSummary({ re: 0, im: 0 }, places)
+            return { valid: true, operation: 'pow', aForm, bForm, result: zero }
+          }
+          return {
+            valid: false,
+            operation: 'pow',
+            error: pb.z.im === 0 && pb.z.re === 0
+              ? 'pow is undefined for 0^0'
+              : 'pow has no principal value for a base of zero unless the exponent is a positive real number',
+          }
+        }
+
+        const powered = complexPow(pa.z, pb.z)
+        if (powered === null) return { valid: false, operation: 'pow', error: 'pow is undefined for a base of zero' }
+        const { summary, note } = buildSummaryWithNote(powered, places)
+        const out: CalcResult = { valid: true, operation: 'pow', aForm, bForm, result: summary }
+        if (note !== undefined) out.note = note
+        return out
+      }
 
       if (args.operation === 'power') {
         const n = args.exponent
@@ -435,11 +524,14 @@ export function buildComplexTools(config: ResolvedConfig): ToolSet {
 
   const complex_functions = defineTool({
     name: 'complex_functions',
-    description: 'Evaluate a standard complex function of a complex argument and return the principal value: exp, log, '
-      + 'sin, cos, tan, sinh, cosh, or sqrt. The input is a string ("3+4i", "i", "5∠53.13°"). Principal branch '
-      + 'conventions: log returns ln|z| + i·arg(z) with arg in (-π, π], sqrt returns the root with argument in (-π/2, π/2]. '
-      + 'Use this for correct complex function values (e.g. exp(iπ) = -1, log(-1) = iπ) instead of hand-deriving Euler formulas. '
-      + 'Pure arithmetic, no external calls.',
+    description: 'Evaluate a standard complex function of a complex argument and return the principal value. '
+      + 'Elementary: exp, log, sin, cos, tan, sinh, cosh, sqrt. Inverse (v0.2.0): asin, acos, atan, asinh, acosh, atanh. '
+      + 'The input is a string ("3+4i", "i", "5∠53.13°"). Branch conventions follow CPython\'s cmath: log returns '
+      + 'ln|z| + i·arg(z) with arg in (-π, π], sqrt returns the root with argument in (-π/2, π/2], and the inverse '
+      + 'functions use their standard principal cuts (asin/acos/atanh cut on the real axis, atan/asinh on the imaginary '
+      + 'axis, acosh with real part ≥ 0). atan(±i) and atanh(±1) are genuinely undefined and come back as an honest error. '
+      + 'Use this for correct complex function values (e.g. exp(iπ) = -1, log(-1) = iπ, asin(2) = π/2 + 1.3169578969i) '
+      + 'instead of hand-deriving Euler formulas. Pure arithmetic, no external calls.',
     parameters: {
       input: { type: 'string', required: true, description: 'Complex argument as a string, e.g. "i", "3+4i", "-1".' },
       operation: { type: 'string', required: true, enum: [...FUNCTION_OPS], description: 'Function to evaluate.' },
@@ -486,15 +578,34 @@ export function buildComplexTools(config: ResolvedConfig): ToolSet {
       else if (args.operation === 'sinh') out = complexSinh(z)
       else if (args.operation === 'cosh') out = complexCosh(z)
       else if (args.operation === 'sqrt') out = complexSqrt(z)
+      else if (args.operation === 'asin') out = complexAsin(z)
+      else if (args.operation === 'acos') out = complexAcos(z)
+      else if (args.operation === 'atan') out = complexAtan(z)
+      else if (args.operation === 'asinh') out = complexAsinh(z)
+      else if (args.operation === 'acosh') out = complexAcosh(z)
+      else if (args.operation === 'atanh') out = complexAtanh(z)
       else return { valid: false, function: args.operation, error: `unknown function: ${args.operation}` }
 
-      if (out === null) return { valid: false, function: args.operation, error: 'log is undefined at zero' }
+      if (out === null) {
+        const undefinedAt: Partial<Record<FunctionOp, string>> = {
+          log: 'log is undefined at zero',
+          atan: 'atan is undefined at z = ±i (1 ∓ iz = 0 there)',
+          atanh: 'atanh is undefined at z = ±1 (1 ∓ z = 0 there)',
+        }
+        return { valid: false, function: args.operation, error: undefinedAt[args.operation as FunctionOp] ?? `${args.operation} is undefined here` }
+      }
       const { summary, note } = buildSummaryWithNote(out, places)
-      const branchNote = args.operation === 'log'
-        ? 'principal branch: arg in (-π, π]'
-        : args.operation === 'sqrt'
-          ? 'principal square root: argument in (-π/2, π/2]'
-          : undefined
+      const BRANCH_NOTES: Partial<Record<FunctionOp, string>> = {
+        log: 'principal branch: arg in (-π, π]',
+        sqrt: 'principal square root: argument in (-π/2, π/2]',
+        asin: 'principal branch: cut on the real axis for |x| > 1',
+        acos: 'principal branch: cut on the real axis for |x| > 1',
+        atan: 'principal branch: cut on the imaginary axis for |y| > 1',
+        asinh: 'principal branch: cut on the imaginary axis for |y| > 1',
+        acosh: 'principal branch: real part >= 0, cut on the real axis for x < 1',
+        atanh: 'principal branch: cut on the real axis for |x| > 1',
+      }
+      const branchNote = BRANCH_NOTES[args.operation as FunctionOp]
       const result: FunctionResult = {
         valid: true,
         function: args.operation,
@@ -557,5 +668,113 @@ export function buildComplexTools(config: ResolvedConfig): ToolSet {
     },
   })
 
-  return { complex_parse, complex_calc, complex_convert, complex_functions, complex_roots }
+  const complex_quadratic = defineTool({
+    name: 'complex_quadratic',
+    description: 'Solve the quadratic equation a z² + b z + c = 0 over the complex numbers, with complex coefficients. '
+      + 'a, b and c are strings ("1", "-2", "i", "1+i"); the roots are (−b ± √disc)/(2a) with √ the principal square root '
+      + 'and disc = b² − 4ac. Returns the discriminant, both roots, and the Vieta invariants −b/a and c/a, plus each root\'s '
+      + 'residual |a z² + b z + c| so the answer is self-checking. a = 0 degrades to the linear equation b z + c = 0; '
+      + 'a = b = 0 reports "every z" or "no solution" honestly instead of inventing a root. Polynomials with complex '
+      + 'coefficients (e.g. z² + i z + 1 = 0) are handled natively — no real-root fallback. Pure arithmetic, no external calls.',
+    parameters: {
+      a: { type: 'string', required: true, description: 'Quadratic coefficient a, e.g. "1", "2i", "1+i". Non-zero for a true quadratic.' },
+      b: { type: 'string', required: true, description: 'Linear coefficient b, e.g. "-2", "i".' },
+      c: { type: 'string', required: true, description: 'Constant term c, e.g. "2", "1-i".' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          valid: { type: 'boolean', required: true },
+          error: { type: 'string' },
+          a: { type: 'string' },
+          b: { type: 'string' },
+          c: { type: 'string' },
+          degree: { type: 'number' },
+          discriminant: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              re: { type: 'number', required: true },
+              im: { type: 'number', required: true },
+              rect: { type: 'string', required: true },
+            },
+          },
+          roots: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                re: { type: 'number', required: true },
+                im: { type: 'number', required: true },
+                rect: { type: 'string', required: true },
+                residual: { type: 'number', required: true },
+              },
+            },
+          },
+          count: { type: 'number' },
+          sum: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              re: { type: 'number', required: true },
+              im: { type: 'number', required: true },
+              rect: { type: 'string', required: true },
+            },
+          },
+          product: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              re: { type: 'number', required: true },
+              im: { type: 'number', required: true },
+              rect: { type: 'string', required: true },
+            },
+          },
+          note: { type: 'string' },
+        },
+      },
+      render: (_args: { a: string; b: string; c: string }, value: unknown) => [{ type: 'text', text: renderQuadratic(value) }],
+    },
+    async execute(args: { a: string; b: string; c: string }): Promise<QuadraticResult> {
+      const pa = parseComplex(args.a, places)
+      if (!pa.valid) return { valid: false, error: `a: ${pa.error}` }
+      const pb = parseComplex(args.b, places)
+      if (!pb.valid) return { valid: false, error: `b: ${pb.error}` }
+      const pc = parseComplex(args.c, places)
+      if (!pc.valid) return { valid: false, error: `c: ${pc.error}` }
+
+      const solution = solveQuadratic(pa.z, pb.z, pc.z)
+      const roots: QuadraticRoot[] = solution.roots.map((root) => {
+        const value = add(add(multiply(pa.z, multiply(root, root)), multiply(pb.z, root)), pc.z)
+        return { ...pointOf(root, places), residual: cleanValue(modulus(value), places) }
+      })
+
+      const out: QuadraticResult = {
+        valid: true,
+        a: formatRect(pa.z, places),
+        b: formatRect(pb.z, places),
+        c: formatRect(pc.z, places),
+        degree: solution.degree,
+        roots,
+        count: roots.length,
+      }
+      if (solution.discriminant !== null) out.discriminant = pointOf(solution.discriminant, places)
+      if (solution.sum !== null) out.sum = pointOf(solution.sum, places)
+      if (solution.product !== null) out.product = pointOf(solution.product, places)
+
+      if (solution.degree === 1) {
+        out.note = 'a = 0: the equation is linear, so it has a single root'
+      } else if (solution.degree === 0) {
+        out.note = pc.z.re === 0 && pc.z.im === 0
+          ? 'a = b = c = 0: every complex number is a solution'
+          : 'a = b = 0 with c non-zero: no complex number solves this'
+      }
+      return out
+    },
+  })
+
+  return { complex_parse, complex_calc, complex_convert, complex_functions, complex_roots, complex_quadratic }
 }

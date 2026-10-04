@@ -50,6 +50,8 @@ export declare function multiply(a: Complex, b: Complex): Complex;
 /** a / b via the conjugate; division by zero is an error. */
 export declare function divide(a: Complex, b: Complex): Complex | null;
 export declare function conjugate(z: Complex): Complex;
+/** −z (the real-axis twin of `conjugate`). */
+export declare function negate(z: Complex): Complex;
 /** 1 / z; zero is an error. */
 export declare function reciprocal(z: Complex): Complex | null;
 /** Integer power via De Moivre: z^n = r^n (cos nθ + i sin nθ). |n| <= maxPower. */
@@ -75,4 +77,75 @@ export declare function complexSqrt(z: Complex): Complex;
  * θ = principal argument. n is validated by the caller (1..maxRoots).
  */
 export declare function nthRoots(z: Complex, n: number): Complex[];
+/**
+ * Inverse trigonometric / inverse hyperbolic functions (v0.2.0), principal
+ * branch, matching CPython's stdlib `cmath` exactly:
+ *
+ *   asin z  = −i·log(iz + √(1−z²))
+ *   acos z  = π/2 − asin z            (C99's own definition of cacos)
+ *   atan z  = (i/2)·(log(1−iz) − log(1+iz))
+ *   asinh z = log(z + √(z²+1))
+ *   acosh z = log(z + √(z−1)·√(z+1))
+ *   atanh z = ½·(log(1+z) − log(1−z))
+ *
+ * The principal square root is not enough on the branch cuts: exactly on the
+ * cuts (real |x| > 1 for asin/acos/atanh, imaginary |y| > 1 for atan/asinh)
+ * the naive composition picks the conjugate value, so those cases use the
+ * explicit C99 continuation instead:
+ *
+ *   asin(x)   = sign(x)·π/2 + i·acosh(|x|)
+ *   atan(iy)  = π/2 + i·sign(y)·atanh(1/|y|)   (continuous with Re z > 0)
+ *   asinh(iy) = acosh(|y|) + i·sign(y)·π/2
+ *   atanh(x)  = atanh(1/x) + i·π/2
+ *
+ * Every branch convention was verified against `cmath` over a grid of points
+ * that includes all four cuts (see `test/oracle/anchors.py`, section B), which
+ * is also what caught the naive version's wrong sign on those cuts. `null` is
+ * returned exactly where `cmath` raises `ValueError`: `atan(±i)` and
+ * `atanh(±1)` (a logarithm of zero).
+ */
+/** Principal arc sine. */
+export declare function complexAsin(z: Complex): Complex | null;
+/** Principal arc cosine: π/2 − asin (the identity holds for these branches, including the cut). */
+export declare function complexAcos(z: Complex): Complex | null;
+/** Principal arc tangent; undefined at z = ±i. */
+export declare function complexAtan(z: Complex): Complex | null;
+/** Principal inverse hyperbolic sine. */
+export declare function complexAsinh(z: Complex): Complex | null;
+/**
+ * Principal inverse hyperbolic cosine: acosh z = log(z + √(z−1)·√(z+1))
+ * (the product form, which keeps the real part ≥ 0 on the branch cut x < 1
+ * where the naive √(z²−1) picks the wrong side).
+ */
+export declare function complexAcosh(z: Complex): Complex | null;
+/** Principal inverse hyperbolic tangent; undefined at z = ±1. */
+export declare function complexAtanh(z: Complex): Complex | null;
+/**
+ * General complex power a^b = exp(b·log a) on the principal branch (v0.2.0);
+ * `null` when a = 0 (log 0 is undefined — the caller decides whether the real
+ * 0^positive case is allowed).
+ */
+export declare function complexPow(a: Complex, b: Complex): Complex | null;
+/** One solution set of `a z² + b z + c = 0` (v0.2.0). */
+export interface QuadraticSolution {
+    /** 2 = quadratic, 1 = degenerate linear (a = 0, b ≠ 0), 0 = a = b = 0. */
+    degree: 2 | 1 | 0;
+    /** b² − 4ac (present only when degree = 2), with the imaginary part normalised to +0. */
+    discriminant: Complex | null;
+    /** The roots, principal square root of the discriminant first. */
+    roots: Complex[];
+    /** −b/a and c/a (present only when degree = 2) — the Vieta invariants. */
+    sum: Complex | null;
+    product: Complex | null;
+}
+/**
+ * Solve a z² + b z + c = 0 over the complex numbers with complex coefficients:
+ * the roots are (−b ± √disc)/(2a) with √ the principal square root. The
+ * discriminant's imaginary part is normalised to +0 when it is exactly zero,
+ * so a real negative discriminant always takes the +i√|disc| branch instead of
+ * whichever side a signed-zero artefact picks. a = 0 degenerates to the linear
+ * equation b z + c = 0; a = b = 0 leaves no root at all (the caller reports
+ * "every z" vs. "no solution" from c).
+ */
+export declare function solveQuadratic(a: Complex, b: Complex, c: Complex): QuadraticSolution;
 //# sourceMappingURL=complex.d.ts.map

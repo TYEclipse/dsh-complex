@@ -149,6 +149,22 @@ export function divide(a, b) {
 export function conjugate(z) {
     return { re: z.re, im: -z.im };
 }
+/** −z (the real-axis twin of `conjugate`). */
+export function negate(z) {
+    return { re: -z.re, im: -z.im };
+}
+/** i·z — a 90° rotation, used by the inverse-function identities. */
+function mulI(z) {
+    return { re: -z.im, im: z.re };
+}
+/** −i·z (equivalently z / i) — a −90° rotation. */
+function mulNegI(z) {
+    return { re: z.im, im: -z.re };
+}
+function scale(z, k) {
+    return { re: z.re * k, im: z.im * k };
+}
+const ONE = { re: 1, im: 0 };
 /** 1 / z; zero is an error. */
 export function reciprocal(z) {
     const denom = z.re * z.re + z.im * z.im;
@@ -227,5 +243,131 @@ export function nthRoots(z, n) {
         out.push({ re: rootR * Math.cos(angle), im: rootR * Math.sin(angle) });
     }
     return out;
+}
+/**
+ * Inverse trigonometric / inverse hyperbolic functions (v0.2.0), principal
+ * branch, matching CPython's stdlib `cmath` exactly:
+ *
+ *   asin z  = −i·log(iz + √(1−z²))
+ *   acos z  = π/2 − asin z            (C99's own definition of cacos)
+ *   atan z  = (i/2)·(log(1−iz) − log(1+iz))
+ *   asinh z = log(z + √(z²+1))
+ *   acosh z = log(z + √(z−1)·√(z+1))
+ *   atanh z = ½·(log(1+z) − log(1−z))
+ *
+ * The principal square root is not enough on the branch cuts: exactly on the
+ * cuts (real |x| > 1 for asin/acos/atanh, imaginary |y| > 1 for atan/asinh)
+ * the naive composition picks the conjugate value, so those cases use the
+ * explicit C99 continuation instead:
+ *
+ *   asin(x)   = sign(x)·π/2 + i·acosh(|x|)
+ *   atan(iy)  = π/2 + i·sign(y)·atanh(1/|y|)   (continuous with Re z > 0)
+ *   asinh(iy) = acosh(|y|) + i·sign(y)·π/2
+ *   atanh(x)  = atanh(1/x) + i·π/2
+ *
+ * Every branch convention was verified against `cmath` over a grid of points
+ * that includes all four cuts (see `test/oracle/anchors.py`, section B), which
+ * is also what caught the naive version's wrong sign on those cuts. `null` is
+ * returned exactly where `cmath` raises `ValueError`: `atan(±i)` and
+ * `atanh(±1)` (a logarithm of zero).
+ */
+/** Principal arc sine. */
+export function complexAsin(z) {
+    if (z.im === 0 && Math.abs(z.re) > 1) {
+        // real branch cut: continue from Im z > 0 (the imaginary part stays positive on both sides)
+        return { re: (Math.sign(z.re) * Math.PI) / 2, im: Math.acosh(Math.abs(z.re)) };
+    }
+    const log = complexLog(add(mulI(z), complexSqrt(subtract(ONE, multiply(z, z)))));
+    return log === null ? null : mulNegI(log);
+}
+/** Principal arc cosine: π/2 − asin (the identity holds for these branches, including the cut). */
+export function complexAcos(z) {
+    const asin = complexAsin(z);
+    return asin === null ? null : { re: Math.PI / 2 - asin.re, im: -asin.im };
+}
+/** Principal arc tangent; undefined at z = ±i. */
+export function complexAtan(z) {
+    if (z.re === 0 && Math.abs(z.im) > 1) {
+        // imaginary branch cut: continuous with the right half plane
+        return { re: Math.PI / 2, im: Math.sign(z.im) * Math.atanh(1 / Math.abs(z.im)) };
+    }
+    const l1 = complexLog(subtract(ONE, mulI(z)));
+    const l2 = complexLog(add(ONE, mulI(z)));
+    if (l1 === null || l2 === null)
+        return null;
+    return scale(mulI(subtract(l1, l2)), 0.5);
+}
+/** Principal inverse hyperbolic sine. */
+export function complexAsinh(z) {
+    if (z.re === 0 && Math.abs(z.im) > 1) {
+        // imaginary branch cut: acosh(|y|) + i·sign(y)·π/2
+        return { re: Math.acosh(Math.abs(z.im)), im: (Math.sign(z.im) * Math.PI) / 2 };
+    }
+    return complexLog(add(z, complexSqrt(add(multiply(z, z), ONE))));
+}
+/**
+ * Principal inverse hyperbolic cosine: acosh z = log(z + √(z−1)·√(z+1))
+ * (the product form, which keeps the real part ≥ 0 on the branch cut x < 1
+ * where the naive √(z²−1) picks the wrong side).
+ */
+export function complexAcosh(z) {
+    const inner = add(z, multiply(complexSqrt(subtract(z, ONE)), complexSqrt(add(z, ONE))));
+    return complexLog(inner);
+}
+/** Principal inverse hyperbolic tangent; undefined at z = ±1. */
+export function complexAtanh(z) {
+    if (z.im === 0 && Math.abs(z.re) > 1) {
+        // real branch cut: atanh(1/x) + iπ/2 (the imaginary part stays positive on both sides)
+        return { re: Math.atanh(1 / z.re), im: Math.PI / 2 };
+    }
+    const l1 = complexLog(add(ONE, z));
+    const l2 = complexLog(subtract(ONE, z));
+    if (l1 === null || l2 === null)
+        return null;
+    return scale(subtract(l1, l2), 0.5);
+}
+/**
+ * General complex power a^b = exp(b·log a) on the principal branch (v0.2.0);
+ * `null` when a = 0 (log 0 is undefined — the caller decides whether the real
+ * 0^positive case is allowed).
+ */
+export function complexPow(a, b) {
+    const log = complexLog(a);
+    if (log === null)
+        return null;
+    return complexExp(multiply(b, log));
+}
+/**
+ * Solve a z² + b z + c = 0 over the complex numbers with complex coefficients:
+ * the roots are (−b ± √disc)/(2a) with √ the principal square root. The
+ * discriminant's imaginary part is normalised to +0 when it is exactly zero,
+ * so a real negative discriminant always takes the +i√|disc| branch instead of
+ * whichever side a signed-zero artefact picks. a = 0 degenerates to the linear
+ * equation b z + c = 0; a = b = 0 leaves no root at all (the caller reports
+ * "every z" vs. "no solution" from c).
+ */
+export function solveQuadratic(a, b, c) {
+    if (a.re === 0 && a.im === 0) {
+        if (b.re === 0 && b.im === 0) {
+            return { degree: 0, discriminant: null, roots: [], sum: null, product: null };
+        }
+        const root = divide(negate(c), b);
+        return { degree: 1, discriminant: null, roots: root === null ? [] : [root], sum: null, product: null };
+    }
+    const raw = subtract(multiply(b, b), multiply(scale(a, 4), c));
+    const disc = raw.im === 0 ? { re: raw.re, im: 0 } : raw;
+    const s = complexSqrt(disc);
+    const denominator = scale(a, 2);
+    const minusB = negate(b);
+    const roots = [];
+    const first = divide(add(minusB, s), denominator);
+    const second = divide(subtract(minusB, s), denominator);
+    if (first !== null)
+        roots.push(first);
+    if (second !== null)
+        roots.push(second);
+    const sum = divide(minusB, a);
+    const product = divide(c, a);
+    return { degree: 2, discriminant: disc, roots, sum, product };
 }
 //# sourceMappingURL=complex.js.map

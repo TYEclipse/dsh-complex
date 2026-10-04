@@ -1,8 +1,11 @@
 /**
- * Unit tests for the complex core, anchored by an independent oracle
- * (/tmp/dsh-scan/anchors-complex.py, Python stdlib cmath — the authoritative
- * reference implementation). Every anchor value below was produced by that
- * oracle, not hand-computed.
+ * Unit tests for the complex core, anchored by an independent oracle:
+ *
+ * ORACLE: test/oracle/anchors.py
+ *
+ * (Python stdlib `cmath` is the authoritative reference implementation for
+ * every function value; parsing/arithmetic/roots are exact closed forms.)
+ * Every anchor value below was produced by that oracle, not hand-computed.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -11,10 +14,17 @@ import {
   argumentDeg,
   argumentRad,
   cleanValue,
+  complexAcos,
+  complexAcosh,
+  complexAsin,
+  complexAsinh,
+  complexAtan,
+  complexAtanh,
   complexCos,
   complexCosh,
   complexExp,
   complexLog,
+  complexPow,
   complexSin,
   complexSinh,
   complexSqrt,
@@ -27,9 +37,11 @@ import {
   integerPower,
   modulus,
   multiply,
+  negate,
   nthRoots,
   parseComplex,
   reciprocal,
+  solveQuadratic,
   subtract,
 } from '../src/complex.ts'
 
@@ -237,5 +249,185 @@ describe('formatters', () => {
   it('polar and exponential', () => {
     expect(formatPolar({ re: 3, im: 4 }, P)).toBe('5∠53.1301023542°')
     expect(formatExponential({ re: 3, im: 4 }, P)).toBe('5·e^(i·0.927295218)')
+  })
+})
+
+describe('negate (real-axis twin of conjugate, oracle anchors)', () => {
+  it('flips both components', () => expectClose(negate({ re: 3, im: -4 }), [-3, 4]))
+  it('is an involution', () => expectClose(negate(negate({ re: -2.5, im: 0.25 })), [-2.5, 0.25]))
+})
+
+describe('inverse trigonometric / inverse hyperbolic (cmath branch anchors)', () => {
+  // Section B of the oracle: same identities as CPython's cmath, verified
+  // against it point-by-point including both branch cuts.
+  it('asin(1+i)', () => expectClose(complexAsin({ re: 1, im: 1 }), [0.6662394325, 1.0612750619]))
+  it('acos(1+i)', () => expectClose(complexAcos({ re: 1, im: 1 }), [0.9045568943, -1.0612750619]))
+  it('atan(1+i)', () => expectClose(complexAtan({ re: 1, im: 1 }), [1.0172219679, 0.4023594781]))
+  it('asinh(1+i)', () => expectClose(complexAsinh({ re: 1, im: 1 }), [1.0612750619, 0.6662394325]))
+  it('acosh(1+i)', () => expectClose(complexAcosh({ re: 1, im: 1 }), [1.0612750619, 0.9045568943]))
+  it('atanh(1+i)', () => expectClose(complexAtanh({ re: 1, im: 1 }), [0.4023594781, 1.0172219679]))
+
+  it('asin(2) takes the cut value π/2 + 1.3169578969i', () => expectClose(complexAsin({ re: 2, im: 0 }), [1.5707963268, 1.3169578969]))
+  it('acos(2) is purely imaginary (-1.3169578969i)', () => expectClose(complexAcos({ re: 2, im: 0 }), [0, -1.3169578969]))
+  it('atanh(2) = 0.5493061443 + iπ/2', () => expectClose(complexAtanh({ re: 2, im: 0 }), [0.5493061443, 1.5707963268]))
+  it('acosh(-2) = 1.3169578969 + iπ (product form keeps Re >= 0)', () => expectClose(complexAcosh({ re: -2, im: 0 }), [1.3169578969, 3.1415926536]))
+  it('atan(2i) = π/2 + 0.5493061443i', () => expectClose(complexAtan({ re: 0, im: 2 }), [1.5707963268, 0.5493061443]))
+  it('asin(i) = 0.881373587i', () => expectClose(complexAsin({ re: 0, im: 1 }), [0, 0.881373587]))
+  it('atanh(i) = iπ/4', () => expectClose(complexAtanh({ re: 0, im: 1 }), [0, 0.7853981634]))
+
+  it('asin(-2) keeps the odd symmetry', () => expectClose(complexAsin({ re: -2, im: 0 }), [-1.5707963268, 1.3169578969]))
+  it('acos(-2) = π - i·1.3169578969', () => expectClose(complexAcos({ re: -2, im: 0 }), [3.1415926536, -1.3169578969]))
+
+  it('round-trips: sin(asin(1+i)) = 1+i (within the cut region)', () => {
+    const asin = complexAsin({ re: 1, im: 1 })
+    expect(asin).not.toBeNull()
+    expectClose(complexSin(asin as { re: number; im: number }), [1, 1])
+  })
+
+  it('atan(±i) and atanh(±1) are genuinely undefined (null, as cmath raises)', () => {
+    expect(complexAtan({ re: 0, im: 1 })).toBeNull()
+    expect(complexAtan({ re: 0, im: -1 })).toBeNull()
+    expect(complexAtanh({ re: 1, im: 0 })).toBeNull()
+    expect(complexAtanh({ re: -1, im: 0 })).toBeNull()
+  })
+})
+
+describe('inverse branch cuts (the naive composition gets the conjugate here)', () => {
+  // Regression: the principal-sqrt identities silently return the conjugate
+  // value exactly on the cuts, so the implementation switches to the explicit
+  // C99 continuation there. Values from section B of the oracle.
+  it('asin/acos on the real cut |x| > 1 keep imag positive for asin', () => {
+    expectClose(complexAsin({ re: 3, im: 0 }), [1.5707963268, 1.762747174])
+    expectClose(complexAsin({ re: -3, im: 0 }), [-1.5707963268, 1.762747174])
+    expectClose(complexAsin({ re: 4, im: 0 }), [1.5707963268, 2.0634370689])
+    expectClose(complexAcos({ re: 3, im: 0 }), [0, -1.762747174])
+    expectClose(complexAcos({ re: -3, im: 0 }), [3.1415926536, -1.762747174])
+  })
+
+  it('atanh keeps imag = +π/2 across the whole real cut (both signs)', () => {
+    expectClose(complexAtanh({ re: 2, im: 0 }), [0.5493061443, 1.5707963268])
+    expectClose(complexAtanh({ re: -2, im: 0 }), [-0.5493061443, 1.5707963268])
+    expectClose(complexAtanh({ re: -3, im: 0 }), [-0.3465735903, 1.5707963268])
+    expectClose(complexAtanh({ re: 4, im: 0 }), [0.2554128119, 1.5707963268])
+  })
+
+  it('atan leans to Re = +π/2 on the imaginary cut (parser convention: re = +0)', () => {
+    expectClose(complexAtan({ re: 0, im: 2 }), [1.5707963268, 0.5493061443])
+    expectClose(complexAtan({ re: 0, im: -2 }), [1.5707963268, -0.5493061443])
+    expectClose(complexAtan({ re: 0, im: 3 }), [1.5707963268, 0.3465735903])
+    expectClose(complexAtan({ re: 0, im: -3 }), [1.5707963268, -0.3465735903])
+  })
+
+  it('asinh on the imaginary cut = acosh(|y|) + i·sign(y)·π/2', () => {
+    expectClose(complexAsinh({ re: 0, im: 2 }), [1.3169578969, 1.5707963268])
+    expectClose(complexAsinh({ re: 0, im: -2 }), [1.3169578969, -1.5707963268])
+    expectClose(complexAsinh({ re: 0, im: -3 }), [1.762747174, -1.5707963268])
+  })
+
+  it('off-cut values are untouched by the cut handling', () => {
+    expectClose(complexAsin({ re: 1, im: 1e-9 }), [1.570764704, 3.16228e-05])
+    expectClose(complexAcos({ re: 2, im: -1e-9 }), [6e-10, 1.3169578969])
+    expectClose(complexAtanh({ re: 2, im: -1e-9 }), [0.5493061443, -1.5707963265])
+    expectClose(complexAsinh({ re: 0, im: 1 }), [0, 1.5707963268])
+  })
+})
+
+describe('complexPow — general complex power a^b = exp(b·log a)', () => {
+  it('(1+i)^(1-i)', () => expectClose(complexPow({ re: 1, im: 1 }, { re: 1, im: -1 }), [2.8078792973, 1.3178651729]))
+  it('i^i = e^(-π/2)', () => expectClose(complexPow({ re: 0, im: 1 }, { re: 0, im: 1 }), [0.2078795764, 0]))
+  it('2^(1+i) = 2·(cos ln2 + i sin ln2)', () => expectClose(complexPow({ re: 2, im: 0 }, { re: 1, im: 1 }), [1.5384778027, 1.2779225526]))
+  it('(-1)^0.5 = i (principal branch)', () => expectClose(complexPow({ re: -1, im: 0 }, { re: 0.5, im: 0 }), [0, 1]))
+  it('(3+4i)^(1-2i)', () => expectClose(complexPow({ re: 3, im: 4 }, { re: 1, im: -2 }), [-21.0831396907, -24.0002107094]))
+  it('e^(iπ) = -1 (Euler, via the general power)', () => expectClose(complexPow({ re: Math.E, im: 0 }, { re: 0, im: Math.PI }), [-1, 0]))
+  it('0^anything has no principal value (null)', () => {
+    expect(complexPow({ re: 0, im: 0 }, { re: 2, im: 0 })).toBeNull()
+    expect(complexPow({ re: 0, im: 0 }, { re: 0, im: 0 })).toBeNull()
+  })
+})
+
+describe('solveQuadratic (oracle anchors, section D)', () => {
+  it('z^2 + 1 = 0 -> ±i', () => {
+    const s = solveQuadratic({ re: 1, im: 0 }, { re: 0, im: 0 }, { re: 1, im: 0 })
+    expect(s.degree).toBe(2)
+    expectClose(s.discriminant, [-4, 0])
+    expect(s.roots).toHaveLength(2)
+    expectClose(s.roots[0] ?? null, [0, 1])
+    expectClose(s.roots[1] ?? null, [0, -1])
+    expectClose(s.sum, [0, 0])
+    expectClose(s.product, [1, 0])
+  })
+
+  it('z^2 - 2z + 2 = 0 -> 1±i (signed-zero disc normalised, principal root first)', () => {
+    const s = solveQuadratic({ re: 1, im: 0 }, { re: -2, im: 0 }, { re: 2, im: 0 })
+    expectClose(s.discriminant, [-4, 0])
+    expectClose(s.roots[0] ?? null, [1, 1])
+    expectClose(s.roots[1] ?? null, [1, -1])
+    expectClose(s.sum, [2, 0])
+    expectClose(s.product, [2, 0])
+  })
+
+  it('z^2 + z + 1 = 0 -> -0.5 ± 0.8660254038i', () => {
+    const s = solveQuadratic({ re: 1, im: 0 }, { re: 1, im: 0 }, { re: 1, im: 0 })
+    expectClose(s.discriminant, [-3, 0])
+    expectClose(s.roots[0] ?? null, [-0.5, 0.8660254038])
+    expectClose(s.roots[1] ?? null, [-0.5, -0.8660254038])
+    expectClose(s.sum, [-1, 0])
+  })
+
+  it('2z^2 - 4z + 5 = 0 -> 1 ± 1.2247448714i', () => {
+    const s = solveQuadratic({ re: 2, im: 0 }, { re: -4, im: 0 }, { re: 5, im: 0 })
+    expectClose(s.discriminant, [-24, 0])
+    expectClose(s.roots[0] ?? null, [1, 1.2247448714])
+    expectClose(s.roots[1] ?? null, [1, -1.2247448714])
+    expectClose(s.product, [2.5, 0])
+  })
+
+  it('z^2 + i z + 1 = 0 -> i·0.6180339887 and -i·1.6180339887 (complex coefficients)', () => {
+    const s = solveQuadratic({ re: 1, im: 0 }, { re: 0, im: 1 }, { re: 1, im: 0 })
+    expectClose(s.discriminant, [-5, 0])
+    expectClose(s.roots[0] ?? null, [0, 0.6180339887])
+    expectClose(s.roots[1] ?? null, [0, -1.6180339887])
+    expectClose(s.sum, [0, -1])
+    expectClose(s.product, [1, 0])
+  })
+
+  it('(1+i)z^2 - 1 = 0 -> ±(0.776886987 - 0.3217971265i)', () => {
+    const s = solveQuadratic({ re: 1, im: 1 }, { re: 0, im: 0 }, { re: -1, im: 0 })
+    expectClose(s.discriminant, [4, 4])
+    expectClose(s.roots[0] ?? null, [0.776886987, -0.3217971265])
+    expectClose(s.roots[1] ?? null, [-0.776886987, 0.3217971265])
+    expectClose(s.sum, [0, 0])
+    expectClose(s.product, [-0.5, 0.5])
+  })
+
+  it('a = 0 degrades to the linear equation 2z - 4 = 0 -> z = 2', () => {
+    const s = solveQuadratic({ re: 0, im: 0 }, { re: 2, im: 0 }, { re: -4, im: 0 })
+    expect(s.degree).toBe(1)
+    expect(s.discriminant).toBeNull()
+    expect(s.roots).toHaveLength(1)
+    expectClose(s.roots[0] ?? null, [2, 0])
+    expect(s.sum).toBeNull()
+    expect(s.product).toBeNull()
+  })
+
+  it('a = b = 0 leaves no root (degree 0)', () => {
+    const s = solveQuadratic({ re: 0, im: 0 }, { re: 0, im: 0 }, { re: 1, im: 0 })
+    expect(s.degree).toBe(0)
+    expect(s.roots).toHaveLength(0)
+    expect(s.sum).toBeNull()
+  })
+
+  it('every root substitutes back exactly (residuals below the 10-place snap)', () => {
+    for (const [a, b, c] of [
+      [{ re: 1, im: 0 }, { re: 1, im: 0 }, { re: 1, im: 0 }],
+      [{ re: 1, im: 1 }, { re: 0, im: 0 }, { re: -1, im: 0 }],
+      [{ re: 1, im: 0 }, { re: 0, im: 1 }, { re: 1, im: 0 }],
+    ]) {
+      const s = solveQuadratic(a as { re: number; im: number }, b as { re: number; im: number }, c as { re: number; im: number })
+      for (const root of s.roots) {
+        const value = add(add(multiply(a as { re: number; im: number }, multiply(root, root)), multiply(b as { re: number; im: number }, root)), c as { re: number; im: number })
+        expect(modulus(value)).toBeLessThan(1e-12)
+      }
+    }
   })
 })
