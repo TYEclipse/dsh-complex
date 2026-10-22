@@ -8,6 +8,7 @@
  *   complex_functions  — principal values of the elementary and inverse functions
  *   complex_roots      — all n n-th roots of a complex number
  *   complex_quadratic  — solve a z² + b z + c = 0 with complex coefficients
+ *   complex_poly       — evaluate a polynomial (with derivative) and find all roots
  *
  * All computation is closed-form local arithmetic on the principal branch;
  * no network, no processes, no eval.

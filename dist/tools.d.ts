@@ -6,6 +6,7 @@
  *   complex_functions  — principal values of the elementary and inverse functions
  *   complex_roots      — all n n-th roots of a complex number
  *   complex_quadratic  — solve a z² + b z + c = 0 over the complex numbers
+ *   complex_poly       — evaluate a polynomial and find all of its roots
  *
  * @module dsh-complex/tools
  */
@@ -18,7 +19,8 @@ export interface ToolSet {
     complex_functions: ToolDefinition;
     complex_roots: ToolDefinition;
     complex_quadratic: ToolDefinition;
+    complex_poly: ToolDefinition;
 }
-/** Build all six complex tool definitions from the resolved config. */
+/** Build all seven complex tool definitions from the resolved config. */
 export declare function buildComplexTools(config: ResolvedConfig): ToolSet;
 //# sourceMappingURL=tools.d.ts.map

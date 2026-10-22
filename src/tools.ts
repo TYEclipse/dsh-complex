@@ -6,6 +6,7 @@
  *   complex_functions  — principal values of the elementary and inverse functions
  *   complex_roots      — all n n-th roots of a complex number
  *   complex_quadratic  — solve a z² + b z + c = 0 over the complex numbers
+ *   complex_poly       — evaluate a polynomial and find all of its roots
  *
  * @module dsh-complex/tools
  */
@@ -33,7 +34,9 @@ import {
   complexSqrt,
   complexTan,
   conjugate,
+  derivativePolynomial,
   divide,
+  evalPolynomial,
   formatExponential,
   formatPolar,
   formatRect,
@@ -42,6 +45,7 @@ import {
   multiply,
   nthRoots,
   parseComplex,
+  polynomialRoots,
   reciprocal,
   solveQuadratic,
   subtract,
@@ -56,6 +60,7 @@ export interface ToolSet {
   complex_functions: ToolDefinition
   complex_roots: ToolDefinition
   complex_quadratic: ToolDefinition
+  complex_poly: ToolDefinition
 }
 
 type CalcOp = 'add' | 'subtract' | 'multiply' | 'divide' | 'conjugate' | 'reciprocal' | 'power' | 'pow'
@@ -70,6 +75,7 @@ const FUNCTION_OPS: readonly FunctionOp[] = ['exp', 'log', 'sin', 'cos', 'tan', 
 
 const MAX_POWER = 1000
 const MAX_ROOTS = 64
+const MAX_POLY_DEGREE = 12
 
 /** Shared summary of a complex value, all fields present on success. */
 interface ComplexSummary {
@@ -261,7 +267,56 @@ function renderQuadratic(value: unknown): string {
     + `product c/a = ${(result.product as QuadraticPoint).rect})\n${result.count} roots:\n${roots}${note}`
 }
 
-/** Build all six complex tool definitions from the resolved config. */
+/** ---- complex_poly ---- */
+
+type PolyOp = 'evaluate' | 'roots'
+
+interface PolyPoint {
+  re: number
+  im: number
+  rect: string
+}
+
+interface PolyRootEntry extends PolyPoint {
+  multiplicity: number
+  residual: number
+}
+
+interface PolyResult {
+  valid: boolean
+  error?: string
+  operation?: string
+  degree?: number
+  trimmedLeadingZeros?: number
+  z?: string
+  value?: PolyPoint
+  derivative?: PolyPoint
+  roots?: PolyRootEntry[]
+  count?: number
+  distinctCount?: number
+  converged?: boolean
+  iterations?: number
+  maxResidual?: number
+  note?: string
+}
+
+function renderPoly(value: unknown): string {
+  const result = value as PolyResult
+  if (!result.valid) return `complex_poly failed: ${result.error}`
+  const note = result.note === undefined ? '' : `\n  note: ${result.note}`
+  if (result.operation === 'evaluate') {
+    return `degree ${result.degree}: p(${result.z}) = ${(result.value as PolyPoint).rect}`
+      + `  (p'(${result.z}) = ${(result.derivative as PolyPoint).rect})${note}`
+  }
+  const list = (result.roots as PolyRootEntry[])
+    .map((r) => `  ${r.rect}${r.multiplicity > 1 ? `  (×${r.multiplicity})` : ''}  residual ${r.residual}`)
+    .join('\n')
+  const head = `degree ${result.degree}: ${result.count} root(s)${(result.count ?? 0) === (result.distinctCount ?? 0) ? '' : ` in ${result.distinctCount} distinct value(s)`}`
+    + ` — ${result.converged === true ? `converged in ${result.iterations} iterations` : 'not converged'}, max residual ${result.maxResidual}`
+  return `${head}\n${list}${note}`
+}
+
+/** Build all seven complex tool definitions from the resolved config. */
 export function buildComplexTools(config: ResolvedConfig): ToolSet {
   const places = config.roundPlaces
 
@@ -776,5 +831,165 @@ export function buildComplexTools(config: ResolvedConfig): ToolSet {
     },
   })
 
-  return { complex_parse, complex_calc, complex_convert, complex_functions, complex_roots, complex_quadratic }
+  const complex_poly = defineTool({
+    name: 'complex_poly',
+    description: 'Polynomials with complex coefficients, written highest power first (["1","0","-1"] is z² − 1). '
+      + `Two operations: "evaluate" returns p(z) and p'(z) at a given z by Horner's rule; "roots" returns every root up to `
+      + `degree ${MAX_POLY_DEGREE} via the Durand–Kerner iteration, with each root’s round-off residual and a real `
+      + 'convergence flag. Whole-number roots come back as exact integers (z³ − 6z² + 11z − 6 → 1, 2, 3); a multiple root '
+      + 'such as (z − 1)² is reported once with multiplicity 2 rather than as two near-identical numbers. When the '
+      + 'iteration does not reach its step tolerance the answer is marked converged: false with the residuals instead of '
+      + 'being presented as exact. Coefficients are any complex strings ("1", "-2i", "1+i"). Pure arithmetic, no external calls.',
+    parameters: {
+      coefficients: {
+        type: 'array',
+        required: true,
+        items: { type: 'string' },
+        description: 'Coefficients highest power first, 2–' + (MAX_POLY_DEGREE + 1) + ' entries, e.g. ["1","0","-1"] for z^2 - 1.',
+      },
+      operation: {
+        type: 'string',
+        required: true,
+        enum: ['evaluate', 'roots'],
+        description: 'evaluate = p(z) and p\'(z) at the given z; roots = all roots of p.',
+      },
+      z: { type: 'string', description: 'Point at which to evaluate (required for evaluate), e.g. "1+i".' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          valid: { type: 'boolean', required: true },
+          error: { type: 'string' },
+          operation: { type: 'string' },
+          degree: { type: 'number' },
+          trimmedLeadingZeros: { type: 'number' },
+          z: { type: 'string' },
+          value: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              re: { type: 'number', required: true },
+              im: { type: 'number', required: true },
+              rect: { type: 'string', required: true },
+            },
+          },
+          derivative: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              re: { type: 'number', required: true },
+              im: { type: 'number', required: true },
+              rect: { type: 'string', required: true },
+            },
+          },
+          roots: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                re: { type: 'number', required: true },
+                im: { type: 'number', required: true },
+                rect: { type: 'string', required: true },
+                multiplicity: { type: 'number', required: true },
+                residual: { type: 'number', required: true },
+              },
+            },
+          },
+          count: { type: 'number' },
+          distinctCount: { type: 'number' },
+          converged: { type: 'boolean' },
+          iterations: { type: 'number' },
+          maxResidual: { type: 'number' },
+          note: { type: 'string' },
+        },
+      },
+      render: (_args: { coefficients: string[]; operation: PolyOp; z?: string }, value: unknown) => [{ type: 'text', text: renderPoly(value) }],
+    },
+    async execute(args: { coefficients: string[]; operation: PolyOp; z?: string }): Promise<PolyResult> {
+      const raw = args.coefficients
+      if (!Array.isArray(raw) || raw.length < 2) {
+        return { valid: false, error: 'coefficients must be an array of at least 2 strings, highest power first (["1","0","-1"] is z^2 - 1)' }
+      }
+      if (raw.length > MAX_POLY_DEGREE + 1) {
+        return { valid: false, error: `too many coefficients: ${raw.length} (degree limit ${MAX_POLY_DEGREE})` }
+      }
+      const parsedCoeffs: Complex[] = []
+      for (let i = 0; i < raw.length; i++) {
+        const parsed = parseComplex(raw[i], places)
+        if (!parsed.valid) return { valid: false, error: `coefficient[${i}] ("${raw[i]}"): ${parsed.error}` }
+        parsedCoeffs.push(parsed.z)
+      }
+      let start = 0
+      while (start < parsedCoeffs.length - 1) {
+        const c = parsedCoeffs[start]
+        if (c === undefined || c.re !== 0 || c.im !== 0) break
+        start++
+      }
+      const trimmedLeadingZeros = start
+      const coeffs = parsedCoeffs.slice(start)
+      const degree = coeffs.length - 1
+      const lead = coeffs[0]
+      if (lead === undefined || (lead.re === 0 && lead.im === 0)) {
+        return { valid: false, error: 'every coefficient is zero: the zero polynomial is not a degree-≥1 polynomial' }
+      }
+      const notes: string[] = []
+      if (trimmedLeadingZeros > 0) notes.push(`trimmed ${trimmedLeadingZeros} leading zero coefficient(s): effective degree ${degree}`)
+
+      if (args.operation === 'evaluate') {
+        if (args.z === undefined) return { valid: false, error: 'z is required for the evaluate operation' }
+        const point = parseComplex(args.z, places)
+        if (!point.valid) return { valid: false, error: `z: ${point.error}` }
+        const value = evalPolynomial(coeffs, point.z)
+        const derivative = evalPolynomial(derivativePolynomial(coeffs), point.z)
+        const out: PolyResult = {
+          valid: true,
+          operation: 'evaluate',
+          degree,
+          trimmedLeadingZeros,
+          z: formatRect(point.z, places),
+          value: pointOf(value, places),
+          derivative: pointOf(derivative, places),
+        }
+        if (notes.length > 0) out.note = notes.join('; ')
+        return out
+      }
+
+      if (degree < 1) {
+        return { valid: false, error: 'the polynomial is a non-zero constant: it has no roots' }
+      }
+      const report = polynomialRoots(coeffs)
+      if (report === null) return { valid: false, error: 'the polynomial could not be normalised (leading coefficient is zero)' }
+
+      const roots: PolyRootEntry[] = report.roots.map((entry) => {
+        const value = evalPolynomial(coeffs, entry.z)
+        return { ...pointOf(entry.z, places), multiplicity: entry.multiplicity, residual: cleanValue(modulus(value), places) }
+      })
+      const maxResidual = roots.reduce((m, r) => Math.max(m, r.residual), 0)
+      const out: PolyResult = {
+        valid: true,
+        operation: 'roots',
+        degree,
+        trimmedLeadingZeros,
+        roots,
+        count: roots.reduce((total, r) => total + r.multiplicity, 0),
+        distinctCount: roots.length,
+        converged: report.converged,
+        iterations: report.iterations,
+        maxResidual,
+      }
+      if (!report.converged) {
+        notes.push(`the iteration stopped after ${report.iterations} steps without reaching its step tolerance: treat the roots as estimates (residuals above)`)
+      }
+      if (roots.some((r) => r.multiplicity > 1)) {
+        notes.push('a repeated root converges only linearly and is reported once with its multiplicity')
+      }
+      if (notes.length > 0) out.note = notes.join('; ')
+      return out
+    },
+  })
+
+  return { complex_parse, complex_calc, complex_convert, complex_functions, complex_roots, complex_quadratic, complex_poly }
 }

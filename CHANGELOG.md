@@ -2,6 +2,15 @@
 
 > 版本口径：patch 修 bug/补测试｜minor 新增用户可见功能｜major 破坏性变更。安装：`dsh plugin --profile web add github:TYEclipse/dsh-complex`
 
+## [0.3.0] — 2026-10-23
+### Minor · R77
+- **新工具 `complex_poly`（第七个工具）**：复系数多项式，系数按最高次在前（`["1","0","-1"]` 即 z² − 1）。
+  - `evaluate`：Horner 法给出 `p(z)` 与 `p'(z)`（导数系数解析求导），与其它工具同一套 10 位小数输出边界。
+  - `roots`：Durand–Kerner（Weierstrass）迭代求全部根，次数 1–12。每个根附**回代残差** `|p(z)|`；相邻结果按相对距离（1e-6）归并，`(z − 1)²` 只报一次并标 `multiplicity: 2`，而不是给出两个几乎相同的数；`converged` 是真实步长判据的结果，未达容差时如实标 `false` 并提示「按估计值看」。
+  - 边界口径：全零系数、非零常数（无根）、次数超限、某个系数不可解析（按 `coefficient[i]` 点名）、`evaluate` 缺 `z` 一律 `valid: false` + 原因；前导零系数自动裁掉并在 `note` 里说明实际次数。
+- **期望值出处**：`test/oracle/anchors.py` 新增 E 区——求值走**直接幂和**（实现走 Horner，路径不同）、根用闭式（单位根公式、二次公式、已知整数根展开式）并逐根回代 + 韦达和/积不变量；`--check` 全绿。测试 181 → 207 条、覆盖率 92.72% → 94.20%（基线棘轮上调）。
+- **无损 JSON 口径统一**：测试助手改为共享模板 `test/helpers/lossless-json.ts` 的 `assertLossless`（undefined 活键 + `-0` + 非有限数），`tools.test.ts` 的本地实现删除（17 处调用点切换）。
+
 ## [0.2.0] — 2026-10-05
 ### Minor · R60
 - [自主进化] R60 新增 complex_quadratic + 复幂 pow + 6 个反函数（含分支切割修正）

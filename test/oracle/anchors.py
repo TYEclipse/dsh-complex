@@ -311,8 +311,76 @@ def section_d():
         check(f"   product invariant ({an},{bn},{cn})", rc(roots[0] * roots[1]), rc(c / a), tol=1e-9)
 
 
+ROOT5 = [cmath.exp(2j * cmath.pi * k / 3) for k in range(3)]
+# z^2 + i z + 1 = 0: b = i, a = c = 1, disc = b^2 - 4ac = -1 - 4 = -5
+_C_B = 1j
+_QUAD_DISC = _C_B * _C_B - 4
+QUAD_C = [(-_C_B + cmath.sqrt(_QUAD_DISC)) / 2, (-_C_B - cmath.sqrt(_QUAD_DISC)) / 2]
+
+# (coefficients, z label, z value) — coefficients highest power first
+EVAL_CASES = [
+    (("1", "0", "-1"), "1+i", 1 + 1j),
+    (("1", "-6", "11", "-6"), "2", 2 + 0j),
+    (("2", "-1", "1", "-4"), "i", 1j),
+    (("1", "1j", "1"), "-2i", -2j),
+    (("0", "1", "-1"), "3", 3 + 0j),
+]
+
+# (label, coefficients, [(known root, multiplicity)]) — roots from closed forms
+ROOT_CASES = [
+    ("z^2 - 1", ("1", "0", "-1"), [(1 + 0j, 1), (-1 + 0j, 1)]),
+    ("z^3 - 1", ("1", "0", "0", "-1"), [(1 + 0j, 1), (ROOT5[1], 1), (ROOT5[2], 1)]),
+    ("z^4 - 1", ("1", "0", "0", "0", "-1"), [(1 + 0j, 1), (1j, 1), (-1 + 0j, 1), (-1j, 1)]),
+    ("(z-1)^2", ("1", "-2", "1"), [(1 + 0j, 2)]),
+    ("z^2 + i z + 1", ("1", "1j", "1"), [(QUAD_C[0], 1), (QUAD_C[1], 1)]),
+    ("(z-1)(z-2)(z-3)", ("1", "-6", "11", "-6"), [(1 + 0j, 1), (2 + 0j, 1), (3 + 0j, 1)]),
+    ("z^2 + 1", ("1", "0", "1"), [(1j, 1), (-1j, 1)]),
+    ("(z-1)(z-2)(z-3)(z-4)", ("1", "-10", "35", "-50", "24"),
+     [(1 + 0j, 1), (2 + 0j, 1), (3 + 0j, 1), (4 + 0j, 1)]),
+    ("0z^2 + z - 1 (leading zero)", ("0", "1", "-1"), [(1 + 0j, 1)]),
+]
+
+
+def section_e():
+    section("E. complex_poly v0.3.0 — Horner evaluation and polynomial roots")
+    for coeffs, zn, z in EVAL_CASES:
+        p = [complex(x) for x in coeffs]
+        deg = len(p) - 1
+        # direct power sum, deliberately not Horner (the implementation uses Horner)
+        value = sum(c * (z ** (deg - i)) for i, c in enumerate(p))
+        deriv = sum((deg - i) * c * (z ** (deg - i - 1)) for i, c in enumerate(p) if deg - i >= 1)
+        print(f"-- coefficients {list(coeffs)} at z = {zn} --")
+        show("   p(z)", value)
+        show("   p'(z)", deriv)
+        check(f"   p({zn}) direct sum", rc(value), rc(value), tol=1e-12)
+
+    for label, coeffs, known in ROOT_CASES:
+        p = [complex(x) for x in coeffs]
+        lead = p[0]
+        while p and p[0] == 0:  # leading zeros trimmed like the plugin
+            p.pop(0)
+        deg = len(p) - 1
+        print(f"-- {label}: coefficients {list(coeffs)} (effective degree {deg}) --")
+        for i, (root, mult) in enumerate(known):
+            residual = abs(sum(c * (root ** (len(p) - 1 - k)) for k, c in enumerate(p)))
+            show(f"   root[{i}]", root)
+            print(f"   root[{i}] multiplicity = {mult}")
+            show(f"   root[{i}] residual |p(z)|", residual)
+            check(f"   root[{i}] satisfies p ({label})", residual, 0.0, tol=1e-9)
+        total = sum(m for _, m in known)
+        check(f"   root count equals degree ({label})", total, deg, tol=0)
+        if lead != 0 and deg >= 2:
+            # Vieta: sum of roots = -a_{n-1}/a_n, product = (-1)^n a_0/a_n
+            s = sum(root * mult for root, mult in known)
+            prod = 1 + 0j
+            for root, mult in known:
+                prod *= root ** mult
+            check(f"   Vieta sum ({label})", rc(s), rc(-p[1] / lead), tol=1e-9)
+            check(f"   Vieta product ({label})", rc(prod), rc(((-1) ** deg) * p[-1] / lead), tol=1e-9)
+
+
 def main():
-    for fn in (section_a, section_b, section_c, section_d):
+    for fn in (section_a, section_b, section_c, section_d, section_e):
         fn()
     print()
     print("=" * 104)

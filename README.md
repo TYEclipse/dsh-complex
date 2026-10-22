@@ -1,8 +1,8 @@
 # dsh-complex ➗➕
 
-Complex-number math toolbox for [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness). Six pure-math tools that do complex arithmetic correctly on the principal branch, so the agent never has to hand-track `i² = -1` bookkeeping, Euler formulas, polar conversions, or branch cuts.
+Complex-number math toolbox for [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness). Seven pure-math tools that do complex arithmetic correctly on the principal branch, so the agent never has to hand-track `i² = -1` bookkeeping, Euler formulas, polar conversions, branch cuts, or polynomial roots.
 
-> 中文简介：dsh-complex 是 DeepSeek Harness 的复数数学工具箱插件，提供 6 个纯计算工具（复数解析、四则运算与任意复幂、极坐标↔直角坐标互转、初等与反函数主值、n 次方根全集、复系数二次方程求解），零运行时依赖、纯本地算术。适合让 Agent 直接完成「复数乘除、极坐标转换、欧拉公式、n 次方根、反三角/反双曲主值、分支切割、复系数二次方程」等手算极易出错的计算。
+> 中文简介：dsh-complex 是 DeepSeek Harness 的复数数学工具箱插件，提供 7 个纯计算工具（复数解析、四则运算与任意复幂、极坐标↔直角坐标互转、初等与反函数主值、n 次方根全集、复系数二次方程求解、多项式求值与全部根），零运行时依赖、纯本地算术。适合让 Agent 直接完成「复数乘除、极坐标转换、欧拉公式、n 次方根、反三角/反双曲主值、分支切割、复系数二次方程」等手算极易出错的计算。
 
 ## Why
 
@@ -17,6 +17,7 @@ LLMs reliably botch complex arithmetic: `(3+4i)(1-2i)`, `exp(iπ)`, `log(-1)`, `
 | `complex_convert` | `to_polar` (any input → modulus, argument rad/deg, polar + exponential strings) and `to_rect` (polar input → a+bi). |
 | `complex_functions` | Principal values of the elementary functions (exp, log, sin, cos, tan, sinh, cosh, sqrt) **and the inverses** `asin`, `acos`, `atan`, `asinh`, `acosh`, `atanh`. Branch conventions are reported in the result `note`. |
 | `complex_roots` | All n n-th roots (n = 1..64): r^(1/n)·(cos((θ+2πk)/n) + i·sin((θ+2πk)/n)), k = 0..n−1, listed from the principal root. |
+| `complex_poly` | Polynomials with **complex** coefficients, highest power first: `evaluate` returns `p(z)` and `p'(z)` (Horner), `roots` returns every root up to degree 12 (Durand–Kerner) with each root's residual and a real `converged` flag. Integer roots come back exact; a multiple root such as `(z − 1)²` is reported once with multiplicity 2 instead of two near-identical numbers, and a run that misses its step tolerance says so. |
 | `complex_quadratic` | Solve `a z² + b z + c = 0` with **complex** coefficients: discriminant, both roots (principal square root first), the Vieta invariants −b/a and c/a, and each root's residual `|a z² + b z + c|` so the answer is self-checking. `a = 0` degrades to the linear equation; `a = b = 0` reports "every z" or "no solution" honestly. |
 
 Every value is deterministic: computations keep raw IEEE doubles and round/snap floating-point dust only at the output boundary (10 decimal places by default, configurable via `plugins.complex.roundPlaces`).
@@ -89,6 +90,22 @@ complex_quadratic(a="1", b="i", c="1")
 
 complex_quadratic(a="0", b="2", c="-4")
 → degree 1 (linear): root 2
+```
+
+### Polynomials and their roots
+
+```
+complex_poly(coefficients=["1","0","-1"], operation="evaluate", z="1+i")
+→ p(1+1i) = -1+2i, p'(1+1i) = 2+2i
+
+complex_poly(coefficients=["1","0","0","-1"], operation="roots")
+→ 3 roots: 1, -0.5+0.8660254038i, -0.5-0.8660254038i   (converged, max residual 0)
+
+complex_poly(coefficients=["1","-2","1"], operation="roots")
+→ 1 root: 1  (×2)   — (z − 1)², multiplicity 2, not two near-identical numbers
+
+complex_poly(coefficients=["1","-1","1","-4"], operation="roots")
+→ 1, i, -i, -1                                    (z⁴ − 1)
 ```
 
 ### Conventions

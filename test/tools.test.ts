@@ -8,22 +8,10 @@
 import { describe, expect, it } from 'vitest'
 import { resolveConfig } from '../src/index.ts'
 import { buildComplexTools } from '../src/tools.ts'
+import { assertLossless } from './helpers/lossless-json.ts'
 
 type Exec = (args: unknown) => Promise<unknown>
 
-function assertNoUndefined(node: unknown, path = 'root'): void {
-  if (node === null) return
-  if (Array.isArray(node)) {
-    node.forEach((item, i) => assertNoUndefined(item, `${path}[${i}]`))
-    return
-  }
-  if (typeof node === 'object') {
-    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
-      expect(value, `${path}.${key} must not be undefined`).not.toBeUndefined()
-      assertNoUndefined(value, `${path}.${key}`)
-    }
-  }
-}
 
 function renderText(value: unknown, definition: { output: { render: (args: unknown, value: unknown) => unknown } }, args: unknown): string {
   const rendered = definition.output.render(args, value) as { type: string; text: string }[]
@@ -43,9 +31,9 @@ describe('resolveConfig', () => {
 describe('buildComplexTools', () => {
   const tools = buildComplexTools(resolveConfig({}))
 
-  it('exposes all six tools under their canonical names', () => {
+  it('exposes all seven tools under their canonical names', () => {
     expect(Object.keys(tools).sort()).toEqual(
-      ['complex_calc', 'complex_convert', 'complex_functions', 'complex_parse', 'complex_quadratic', 'complex_roots'].sort(),
+      ['complex_calc', 'complex_convert', 'complex_functions', 'complex_parse', 'complex_poly', 'complex_quadratic', 'complex_roots'].sort(),
     )
   })
 
@@ -66,7 +54,7 @@ describe('complex_parse execute', () => {
 
   it('parses 3+4i into the full summary (oracle anchors)', async () => {
     const result = await run({ input: '3+4i' }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     expect(result.valid).toBe(true)
     expect(result.form).toBe('rectangular')
     expect(result.re).toBe(3)
@@ -99,7 +87,7 @@ describe('complex_parse execute', () => {
 
   it('rejects malformed input with a helpful error', async () => {
     const result = await run({ input: '3-4' }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     expect(result.valid).toBe(false)
     expect(typeof result.error).toBe('string')
   })
@@ -118,7 +106,7 @@ describe('complex_calc execute', () => {
 
   it('add: (3+4i)+(1-2i) = 4+2i', async () => {
     const result = await run({ a: '3+4i', b: '1-2i', operation: 'add' }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     expect(result.valid).toBe(true)
     const r = result.result as Record<string, unknown>
     expect(r.re).toBeCloseTo(4, 8)
@@ -140,7 +128,7 @@ describe('complex_calc execute', () => {
 
   it('power: (1+i)^8 = 16', async () => {
     const result = await run({ a: '1+i', exponent: 8, operation: 'power' }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     expect(result.valid).toBe(true)
     const r = result.result as Record<string, unknown>
     expect(r.re).toBeCloseTo(16, 8)
@@ -175,7 +163,7 @@ describe('complex_convert execute', () => {
 
   it('to_polar on 3+4i (oracle anchors)', async () => {
     const result = await run({ input: '3+4i', operation: 'to_polar' }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     expect(result.valid).toBe(true)
     expect(result.modulus).toBe(5)
     expect(result.argumentRad).toBeCloseTo(0.927295218, 8)
@@ -186,7 +174,7 @@ describe('complex_convert execute', () => {
 
   it('to_rect on polar input', async () => {
     const result = await run({ input: '2∠270°', operation: 'to_rect' }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     expect(result.valid).toBe(true)
     expect(result.re).toBeCloseTo(0, 8)
     expect(result.im).toBeCloseTo(-2, 8)
@@ -216,7 +204,7 @@ describe('complex_functions execute', () => {
 
   it('log(-1) = iπ on the principal branch', async () => {
     const result = await run({ input: '-1', operation: 'log' }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     const r = result.result as Record<string, unknown>
     expect(r.re).toBeCloseTo(0, 8)
     expect(r.im).toBeCloseTo(3.1415926536, 8)
@@ -273,7 +261,7 @@ describe('complex_roots execute', () => {
 
   it('4th roots of 1 (roots of unity)', async () => {
     const result = await run({ input: '1', n: 4 }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     expect(result.valid).toBe(true)
     const roots = result.roots as { re: number; im: number; rect: string }[]
     expect(roots).toHaveLength(4)
@@ -298,7 +286,7 @@ describe('complex_roots execute', () => {
   it('rejects n outside 1..64', async () => {
     for (const n of [0, -1, 65, 2.5]) {
       const result = await run({ input: '1', n }) as Record<string, unknown>
-      assertNoUndefined(result)
+      assertLossless(result)
       expect(result.valid).toBe(false)
     }
   })
@@ -317,7 +305,7 @@ describe('complex_calc pow (general complex power, oracle anchors)', () => {
 
   it('(1+i)^(1-i) = 2.8078792973+1.3178651729i', async () => {
     const result = await run({ a: '1+i', b: '1-i', operation: 'pow' }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     expect(result.valid).toBe(true)
     const r = result.result as Record<string, unknown>
     expect(r.re).toBeCloseTo(2.8078792973, 8)
@@ -357,7 +345,7 @@ describe('complex_calc pow (general complex power, oracle anchors)', () => {
     expect((ok.result as Record<string, unknown>).rect).toBe('0')
     for (const b of ['0', '-1', 'i']) {
       const bad = await run({ a: '0', b, operation: 'pow' }) as Record<string, unknown>
-      assertNoUndefined(bad)
+      assertLossless(bad)
       expect(bad.valid).toBe(false)
     }
   })
@@ -376,7 +364,7 @@ describe('complex_functions inverse family (cmath branch anchors)', () => {
 
   it('asin(1+i) with a branch note', async () => {
     const result = await run({ input: '1+i', operation: 'asin' }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     expect(result.valid).toBe(true)
     expect(result.function).toBe('asin')
     const r = result.result as Record<string, unknown>
@@ -438,7 +426,7 @@ describe('complex_functions inverse family (cmath branch anchors)', () => {
 
   it('atan(±i) and atanh(±1) report an honest, specific error', async () => {
     const atan = await run({ input: 'i', operation: 'atan' }) as Record<string, unknown>
-    assertNoUndefined(atan)
+    assertLossless(atan)
     expect(atan.valid).toBe(false)
     expect(atan.error as string).toContain('undefined')
 
@@ -454,7 +442,7 @@ describe('complex_quadratic execute (oracle anchors)', () => {
 
   it('z^2 + i z + 1 = 0 (complex coefficients) with zero residuals and Vieta invariants', async () => {
     const result = await run({ a: '1', b: 'i', c: '1' }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     expect(result.valid).toBe(true)
     expect(result.degree).toBe(2)
     expect(result.count).toBe(2)
@@ -477,7 +465,7 @@ describe('complex_quadratic execute (oracle anchors)', () => {
 
   it('a = 0 degrades to a linear equation with a note', async () => {
     const result = await run({ a: '0', b: '2', c: '-4' }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     expect(result.valid).toBe(true)
     expect(result.degree).toBe(1)
     expect(result.count).toBe(1)
@@ -487,7 +475,7 @@ describe('complex_quadratic execute (oracle anchors)', () => {
 
   it('a = b = 0 says "every z" (c = 0) or "no solution" (c ≠ 0) instead of inventing roots', async () => {
     const every = await run({ a: '0', b: '0', c: '0' }) as Record<string, unknown>
-    assertNoUndefined(every)
+    assertLossless(every)
     expect(every.degree).toBe(0)
     expect(every.count).toBe(0)
     expect(every.note as string).toContain('every complex number')
@@ -499,7 +487,7 @@ describe('complex_quadratic execute (oracle anchors)', () => {
 
   it('rejects a malformed coefficient with a labelled error', async () => {
     const result = await run({ a: '1', b: 'oops', c: '1' }) as Record<string, unknown>
-    assertNoUndefined(result)
+    assertLossless(result)
     expect(result.valid).toBe(false)
     expect(result.error as string).toMatch(/^b:/)
   })

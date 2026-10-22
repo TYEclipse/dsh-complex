@@ -1,7 +1,7 @@
 {
   "name": "dsh-complex",
-  "version": "0.2.0",
-  "description": "Complex-number math toolbox for DeepSeek Harness (dsh): parse and format rectangular/polar/exponential forms, arithmetic (add, subtract, multiply, divide, conjugate, reciprocal, integer power), polar conversion, principal values of exp/log/sin/cos/tan/sinh/cosh/sqrt, and complete n-th roots — zero runtime dependencies",
+  "version": "0.3.0",
+  "description": "Complex-number math toolbox for DeepSeek Harness (dsh): parse and format rectangular/polar/exponential forms, arithmetic (add, subtract, multiply, divide, conjugate, reciprocal, integer power), polar conversion, principal values of exp/log/sin/cos/tan/sinh/cosh/sqrt and the six inverse functions, complete n-th roots, complex-coefficient quadratic equations, and polynomial evaluation with all roots (Durand-Kerner) — zero runtime dependencies",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -25,7 +25,10 @@
     "math",
     "polar-coordinates",
     "euler-formula",
-    "math-tools"
+    "math-tools",
+    "polynomial",
+    "polynomial-roots",
+    "root-finding"
   ],
   "license": "MIT",
   "repository": {

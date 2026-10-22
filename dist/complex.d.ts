@@ -148,4 +148,51 @@ export interface QuadraticSolution {
  * "every z" vs. "no solution" from c).
  */
 export declare function solveQuadratic(a: Complex, b: Complex, c: Complex): QuadraticSolution;
+/**
+ * Polynomials (v0.3.0). Coefficients are given **highest power first**, so
+ * `[1, 0, -1]` is z² − 1 and `[2i, 1, -3]` is 2i·z² + z − 3. Everything below
+ * is plain complex arithmetic on the same primitives the rest of the module
+ * uses (Horner for evaluation, Durand–Kerner for roots).
+ */
+/** Evaluate p(z) by Horner's rule; the empty list is the zero polynomial. */
+export declare function evalPolynomial(coeffs: Complex[], z: Complex): Complex;
+/** Coefficients of p'(z); the derivative of a constant is the zero polynomial. */
+export declare function derivativePolynomial(coeffs: Complex[]): Complex[];
+/** One distinct root with its estimated multiplicity. */
+export interface PolyRoot {
+    z: Complex;
+    multiplicity: number;
+}
+/** Outcome of the Durand–Kerner iteration. */
+export interface PolyRootReport {
+    /** Distinct roots, ascending by real then imaginary part. */
+    roots: PolyRoot[];
+    /** True when the last step was below the step tolerance. */
+    converged: boolean;
+    iterations: number;
+    /** Largest per-component step of the last iteration (in the monic scale). */
+    maxStep: number;
+}
+export interface PolyRootOptions {
+    maxIterations?: number;
+    stepTolerance?: number;
+    /** Relative distance under which neighbouring roots are treated as one root. */
+    clusterTolerance?: number;
+}
+/**
+ * All roots of a polynomial with complex coefficients (degree ≥ 1, leading
+ * coefficient non-zero), by the Durand–Kerner (Weierstrass) iteration on the
+ * monic form:
+ *
+ *   z_k ← z_k − p(z_k) / ∏_{j≠k} (z_k − z_j),  k = 0..n−1
+ *
+ * with the classic (0.4 + 0.9i)^k starting points. The iteration converges
+ * quadratically for simple roots and **linearly** for multiple roots, so
+ * neighbouring results are clustered (`clusterTolerance`, relative) and
+ * reported once with a multiplicity rather than as n near-identical numbers.
+ * Convergence is reported, never assumed: `converged: false` means the step
+ * tolerance was not reached and the caller must treat the values as estimates.
+ * `null` when the input is not a genuine degree-≥1 polynomial.
+ */
+export declare function polynomialRoots(coeffs: Complex[], options?: PolyRootOptions): PolyRootReport | null;
 //# sourceMappingURL=complex.d.ts.map

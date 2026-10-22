@@ -370,4 +370,122 @@ export function solveQuadratic(a, b, c) {
     const product = divide(c, a);
     return { degree: 2, discriminant: disc, roots, sum, product };
 }
+/**
+ * Polynomials (v0.3.0). Coefficients are given **highest power first**, so
+ * `[1, 0, -1]` is z² − 1 and `[2i, 1, -3]` is 2i·z² + z − 3. Everything below
+ * is plain complex arithmetic on the same primitives the rest of the module
+ * uses (Horner for evaluation, Durand–Kerner for roots).
+ */
+/** Evaluate p(z) by Horner's rule; the empty list is the zero polynomial. */
+export function evalPolynomial(coeffs, z) {
+    let acc = { re: 0, im: 0 };
+    for (const c of coeffs)
+        acc = add(multiply(acc, z), c);
+    return acc;
+}
+/** Coefficients of p'(z); the derivative of a constant is the zero polynomial. */
+export function derivativePolynomial(coeffs) {
+    const n = coeffs.length - 1;
+    if (n <= 0)
+        return [{ re: 0, im: 0 }];
+    const out = [];
+    for (let i = 0; i < n; i++) {
+        const c = coeffs[i];
+        if (c !== undefined)
+            out.push(scale(c, n - i));
+    }
+    return out;
+}
+/**
+ * All roots of a polynomial with complex coefficients (degree ≥ 1, leading
+ * coefficient non-zero), by the Durand–Kerner (Weierstrass) iteration on the
+ * monic form:
+ *
+ *   z_k ← z_k − p(z_k) / ∏_{j≠k} (z_k − z_j),  k = 0..n−1
+ *
+ * with the classic (0.4 + 0.9i)^k starting points. The iteration converges
+ * quadratically for simple roots and **linearly** for multiple roots, so
+ * neighbouring results are clustered (`clusterTolerance`, relative) and
+ * reported once with a multiplicity rather than as n near-identical numbers.
+ * Convergence is reported, never assumed: `converged: false` means the step
+ * tolerance was not reached and the caller must treat the values as estimates.
+ * `null` when the input is not a genuine degree-≥1 polynomial.
+ */
+export function polynomialRoots(coeffs, options = {}) {
+    const maxIterations = options.maxIterations ?? 2000;
+    const stepTolerance = options.stepTolerance ?? 1e-14;
+    const clusterTolerance = options.clusterTolerance ?? 1e-6;
+    const n = coeffs.length - 1;
+    if (n < 1)
+        return null;
+    const lead = coeffs[0];
+    if (lead === undefined || (lead.re === 0 && lead.im === 0))
+        return null;
+    const monic = [];
+    for (const c of coeffs) {
+        const q = divide(c, lead);
+        if (q === null)
+            return null;
+        monic.push(q);
+    }
+    const base = { re: 0.4, im: 0.9 };
+    const zs = [];
+    let seed = { re: 1, im: 0 };
+    for (let k = 0; k < n; k++) {
+        zs.push(seed);
+        seed = multiply(seed, base);
+    }
+    let converged = false;
+    let iterations = 0;
+    let maxStep = Number.POSITIVE_INFINITY;
+    while (iterations < maxIterations) {
+        iterations++;
+        maxStep = 0;
+        for (let k = 0; k < n; k++) {
+            const zk = zs[k];
+            if (zk === undefined)
+                continue;
+            const p = evalPolynomial(monic, zk);
+            let denom = { re: 1, im: 0 };
+            for (let j = 0; j < n; j++) {
+                const zj = zs[j];
+                if (j === k || zj === undefined)
+                    continue;
+                denom = multiply(denom, subtract(zk, zj));
+            }
+            let delta = divide(p, denom);
+            if (delta === null)
+                delta = { re: 1e-3, im: 1e-3 }; // coincident guesses: nudge apart
+            const next = subtract(zk, delta);
+            zs[k] = next;
+            const step = Math.hypot(delta.re, delta.im);
+            if (step > maxStep)
+                maxStep = step;
+        }
+        let scaleRef = 1;
+        for (const z of zs)
+            scaleRef = Math.max(scaleRef, modulus(z));
+        if (maxStep <= stepTolerance * scaleRef) {
+            converged = true;
+            break;
+        }
+    }
+    const sorted = [...zs].sort((a, b) => (a.re === b.re ? a.im - b.im : a.re - b.re));
+    const roots = [];
+    for (const z of sorted) {
+        const last = roots[roots.length - 1];
+        if (last !== undefined) {
+            const distance = modulus(subtract(z, last.z));
+            if (distance <= clusterTolerance * Math.max(1, modulus(last.z))) {
+                const mean = divide(add(scale(last.z, last.multiplicity), z), { re: last.multiplicity + 1, im: 0 });
+                if (mean !== null)
+                    last.z = mean;
+                last.multiplicity += 1;
+                continue;
+            }
+        }
+        roots.push({ z, multiplicity: 1 });
+    }
+    return { roots, converged, iterations, maxStep };
+}
 //# sourceMappingURL=complex.js.map
