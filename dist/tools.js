@@ -1,5 +1,5 @@
 /**
- * Tool definitions for dsh-complex: six pure-math tools exposed via defineTool.
+ * Tool definitions for dsh-complex: eight pure-math tools exposed via defineTool.
  *   complex_parse      — parse "3+4i" / "5∠53.13°" into a full summary
  *   complex_calc       — add / subtract / multiply / divide / conjugate / reciprocal / power / pow
  *   complex_convert    — polar <-> rectangular conversion
@@ -7,11 +7,12 @@
  *   complex_roots      — all n n-th roots of a complex number
  *   complex_quadratic  — solve a z² + b z + c = 0 over the complex numbers
  *   complex_poly       — evaluate a polynomial and find all of its roots
+ *   complex_mobius     — Möbius transformations: apply / inverse / fixed points / compose
  *
  * @module dsh-complex/tools
  */
 import { defineTool } from '@deepseek-ai/dsh-tools';
-import { add, argumentDeg, argumentRad, cleanComplex, cleanValue, complexAcos, complexAcosh, complexAsin, complexAsinh, complexAtan, complexAtanh, complexCos, complexCosh, complexExp, complexLog, complexPow, complexSin, complexSinh, complexSqrt, complexTan, conjugate, derivativePolynomial, divide, evalPolynomial, formatExponential, formatPolar, formatRect, integerPower, modulus, multiply, nthRoots, parseComplex, polynomialRoots, reciprocal, solveQuadratic, subtract, } from "./complex.js";
+import { add, argumentDeg, argumentRad, cleanComplex, cleanValue, complexAcos, complexAcosh, complexAsin, complexAsinh, complexAtan, complexAtanh, complexCos, complexCosh, complexExp, complexLog, complexPow, complexSin, complexSinh, complexSqrt, complexTan, conjugate, derivativePolynomial, divide, evalPolynomial, formatExponential, formatPolar, formatRect, integerPower, mobiusApply, mobiusCompose, mobiusConstant, mobiusDeterminant, mobiusFixedPoints, mobiusInversePoint, mobiusIsZero, modulus, multiply, nthRoots, parseComplex, polynomialRoots, reciprocal, solveQuadratic, subtract, } from "./complex.js";
 const CALC_OPS = ['add', 'subtract', 'multiply', 'divide', 'conjugate', 'reciprocal', 'power', 'pow'];
 const CONVERT_OPS = ['to_polar', 'to_rect'];
 const FUNCTION_OPS = ['exp', 'log', 'sin', 'cos', 'tan', 'sinh', 'cosh', 'sqrt',
@@ -813,6 +814,336 @@ export function buildComplexTools(config) {
             return out;
         },
     });
-    return { complex_parse, complex_calc, complex_convert, complex_functions, complex_roots, complex_quadratic, complex_poly };
+    function mobiusPoint(z, places) {
+        const c = cleanComplex(z, places);
+        return {
+            re: c.re,
+            im: c.im,
+            rect: formatRect(c, places),
+            modulus: cleanValue(modulus(c), places),
+            argumentDeg: cleanValue(argumentDeg(c), places),
+        };
+    }
+    function renderMobius(value) {
+        const result = value;
+        if (!result.valid)
+            return `complex_mobius failed: ${result.error}`;
+        const note = result.note === undefined ? '' : `\n  note: ${result.note}`;
+        const map = `M(z) = (${result.a} z + ${result.b})/(${result.c} z + ${result.d})`;
+        const determinant = result.determinant?.rect ?? '?';
+        if (result.operation === 'compose') {
+            return `composed ${map}  (det = ${determinant}${result.invertible === true ? '' : ', degenerate'})${note}`;
+        }
+        if (result.operation === 'fixed_points') {
+            const kind = result.fixedPointKind;
+            const head = kind === 'every_point'
+                ? 'every point is fixed'
+                : kind === 'none' ? 'no finite fixed point' : `${result.fixedPoints?.length ?? 0} fixed point(s)`;
+            const list = (result.fixedPoints ?? []).map((p) => `  ${p.rect}${p.multiplicity > 1 ? '  (×2)' : ''}`).join('\n');
+            const excluded = (result.excludedFixedPoints ?? []).map((p) => p.rect).join(', ');
+            return `${map}: ${head}${list === '' ? '' : `\n${list}`}`
+                + `${excluded === '' ? '' : `\n  excluded (pole): ${excluded}`}${note}`;
+        }
+        const operand = result.z?.rect ?? '?';
+        if (result.operation === 'inverse') {
+            return result.preimage === undefined
+                ? `${map}: w = ${operand} has no finite preimage${note}`
+                : `${map}: preimage of w = ${operand} is z = ${result.preimage.rect}`
+                    + `  (|z| = ${result.preimage.modulus}, arg = ${result.preimage.argumentDeg}°)${note}`;
+        }
+        if (result.w === undefined) {
+            const why = result.degenerate === true
+                ? ` is undefined (degenerate map, constant ${result.constant?.rect ?? '?'})`
+                : ' is undefined (pole)';
+            return `${map}: M(${operand})${why}${note}`;
+        }
+        const derivative = result.derivative === undefined ? '' : `, w' = ${result.derivative.rect}`;
+        return `${map}: M(${operand}) = ${result.w.rect}`
+            + `  (|w| = ${result.w.modulus}, arg = ${result.w.argumentDeg}°${derivative})${note}`;
+    }
+    const complex_mobius = defineTool({
+        name: 'complex_mobius',
+        description: 'Möbius (fractional-linear) transformations M(z) = (a z + b)/(c z + d) with complex coefficients. '
+            + 'Four operations: "apply" maps one point and reports the derivative (ad − bc)/(c z + d)²; "inverse" returns the '
+            + 'preimage of an image point; "fixed_points" solves z = M(z) — i.e. c z² + (d − a) z − b = 0 — and reports two '
+            + 'points, one repeated point, one point, every point (the identity) or none (a translation); "compose" multiplies '
+            + 'two transformations (M ∘ N applies N first). Honest about the three traps: z = −d/c is the pole (reported as '
+            + 'atPole: true with no w field, not a huge number), ad − bc = 0 means the map is degenerate rather than '
+            + 'invertible (every defined point maps to one constant, reported in the constant field), and for a degenerate '
+            + 'map the fixed-point equation also picks up the pole as an extraneous root (listed under excludedFixedPoints, '
+            + 'never silently dropped). Pure arithmetic, no external calls.',
+        parameters: {
+            a: { type: 'string', required: true, description: 'Numerator coefficient a of a z + b, e.g. "1", "-2i", "1+i".' },
+            b: { type: 'string', required: true, description: 'Numerator constant b of a z + b, e.g. "0", "i", "-3".' },
+            c: { type: 'string', required: true, description: 'Denominator coefficient c of c z + d; c and d must not both be 0.' },
+            d: { type: 'string', required: true, description: 'Denominator constant d of c z + d; its zero z = -d/c is the pole.' },
+            operation: {
+                type: 'string',
+                required: true,
+                enum: ['apply', 'inverse', 'fixed_points', 'compose'],
+                description: 'apply = map z; inverse = preimage of w; fixed_points = solve z = M(z); compose = M ∘ N from a second quadruple.',
+            },
+            z: { type: 'string', description: 'apply: the point to map (e.g. "1+i"). inverse: the image point w whose preimage to find.' },
+            a2: { type: 'string', description: 'compose only: coefficient a of the inner transformation N (applied first).' },
+            b2: { type: 'string', description: 'compose only: coefficient b of the inner transformation N.' },
+            c2: { type: 'string', description: 'compose only: coefficient c of the inner transformation N.' },
+            d2: { type: 'string', description: 'compose only: coefficient d of the inner transformation N.' },
+        },
+        output: {
+            schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                    valid: { type: 'boolean', required: true },
+                    error: { type: 'string' },
+                    operation: { type: 'string' },
+                    a: { type: 'string' },
+                    b: { type: 'string' },
+                    c: { type: 'string' },
+                    d: { type: 'string' },
+                    determinant: {
+                        type: 'object',
+                        additionalProperties: false,
+                        properties: {
+                            re: { type: 'number', required: true },
+                            im: { type: 'number', required: true },
+                            rect: { type: 'string', required: true },
+                        },
+                    },
+                    invertible: { type: 'boolean' },
+                    z: {
+                        type: 'object',
+                        additionalProperties: false,
+                        properties: {
+                            re: { type: 'number', required: true },
+                            im: { type: 'number', required: true },
+                            rect: { type: 'string', required: true },
+                            modulus: { type: 'number', required: true },
+                            argumentDeg: { type: 'number', required: true },
+                        },
+                    },
+                    w: {
+                        type: 'object',
+                        additionalProperties: false,
+                        properties: {
+                            re: { type: 'number', required: true },
+                            im: { type: 'number', required: true },
+                            rect: { type: 'string', required: true },
+                            modulus: { type: 'number', required: true },
+                            argumentDeg: { type: 'number', required: true },
+                        },
+                    },
+                    derivative: {
+                        type: 'object',
+                        additionalProperties: false,
+                        properties: {
+                            re: { type: 'number', required: true },
+                            im: { type: 'number', required: true },
+                            rect: { type: 'string', required: true },
+                        },
+                    },
+                    preimage: {
+                        type: 'object',
+                        additionalProperties: false,
+                        properties: {
+                            re: { type: 'number', required: true },
+                            im: { type: 'number', required: true },
+                            rect: { type: 'string', required: true },
+                            modulus: { type: 'number', required: true },
+                            argumentDeg: { type: 'number', required: true },
+                        },
+                    },
+                    atPole: { type: 'boolean' },
+                    degenerate: { type: 'boolean' },
+                    constant: {
+                        type: 'object',
+                        additionalProperties: false,
+                        properties: {
+                            re: { type: 'number', required: true },
+                            im: { type: 'number', required: true },
+                            rect: { type: 'string', required: true },
+                        },
+                    },
+                    fixedPointKind: { type: 'string' },
+                    fixedPoints: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            additionalProperties: false,
+                            properties: {
+                                re: { type: 'number', required: true },
+                                im: { type: 'number', required: true },
+                                rect: { type: 'string', required: true },
+                                multiplicity: { type: 'number', required: true },
+                            },
+                        },
+                    },
+                    excludedFixedPoints: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            additionalProperties: false,
+                            properties: {
+                                re: { type: 'number', required: true },
+                                im: { type: 'number', required: true },
+                                rect: { type: 'string', required: true },
+                            },
+                        },
+                    },
+                    note: { type: 'string' },
+                },
+            },
+            render: (_args, value) => [{ type: 'text', text: renderMobius(value) }],
+        },
+        async execute(args) {
+            const parsed = [];
+            const quad = [['a', args.a], ['b', args.b], ['c', args.c], ['d', args.d]];
+            for (const [field, raw] of quad) {
+                const result = parseComplex(raw, places);
+                if (!result.valid)
+                    return { valid: false, error: `${field}: ${result.error}` };
+                parsed.push(result.z);
+            }
+            const pa = parsed[0];
+            const pb = parsed[1];
+            const pc = parsed[2];
+            const pd = parsed[3];
+            if (pa === undefined || pb === undefined || pc === undefined || pd === undefined) {
+                return { valid: false, error: 'internal: coefficients were not parsed' };
+            }
+            const map = { a: pa, b: pb, c: pc, d: pd };
+            if (mobiusIsZero(map)) {
+                return { valid: false, error: 'a = b = c = d = 0: the map is undefined for every z' };
+            }
+            if (modulus(pc) === 0 && modulus(pd) === 0) {
+                return { valid: false, error: 'c = d = 0: the denominator is zero for every z, so (a z + b)/(c z + d) is not a Möbius map' };
+            }
+            const determinant = mobiusDeterminant(map);
+            const detScale = Math.max(1, modulus(multiply(pa, pd)) + modulus(multiply(pb, pc)));
+            const invertible = modulus(determinant) > 1e-12 * detScale;
+            const base = {
+                valid: true,
+                operation: args.operation,
+                a: formatRect(pa, places),
+                b: formatRect(pb, places),
+                c: formatRect(pc, places),
+                d: formatRect(pd, places),
+                determinant: pointOf(determinant, places),
+                invertible,
+            };
+            if (args.operation === 'compose') {
+                const innerRaw = [['a2', args.a2], ['b2', args.b2], ['c2', args.c2], ['d2', args.d2]];
+                const inner = [];
+                for (const [field, raw] of innerRaw) {
+                    if (raw === undefined)
+                        return { valid: false, error: `${field} is required for compose (the inner transformation N, applied first)` };
+                    const result = parseComplex(raw, places);
+                    if (!result.valid)
+                        return { valid: false, error: `${field}: ${result.error}` };
+                    inner.push(result.z);
+                }
+                const ia = inner[0];
+                const ib = inner[1];
+                const ic = inner[2];
+                const id = inner[3];
+                if (ia === undefined || ib === undefined || ic === undefined || id === undefined) {
+                    return { valid: false, error: 'internal: the inner transformation was not parsed' };
+                }
+                const composed = mobiusCompose(map, { a: ia, b: ib, c: ic, d: id });
+                const composedDet = mobiusDeterminant(composed);
+                const composedScale = Math.max(1, modulus(multiply(composed.a, composed.d)) + modulus(multiply(composed.b, composed.c)));
+                const out = {
+                    valid: true,
+                    operation: 'compose',
+                    a: formatRect(composed.a, places),
+                    b: formatRect(composed.b, places),
+                    c: formatRect(composed.c, places),
+                    d: formatRect(composed.d, places),
+                    determinant: pointOf(composedDet, places),
+                    invertible: modulus(composedDet) > 1e-12 * composedScale,
+                };
+                const notes = [`M ∘ N applies N first: (M ∘ N)(z) = M(N(z)); M = (${base.a} z + ${base.b})/(${base.c} z + ${base.d}), `
+                        + `N = (${formatRect(ia, places)} z + ${formatRect(ib, places)})/(${formatRect(ic, places)} z + ${formatRect(id, places)})`];
+                if (out.invertible !== true)
+                    notes.push('the composition is degenerate (its determinant is 0), so it is not a bijection');
+                out.note = notes.join('; ');
+                return out;
+            }
+            if (args.operation === 'fixed_points') {
+                const report = mobiusFixedPoints(map);
+                const multiplicity = report.kind === 'repeated' ? 2 : 1;
+                const out = { ...base, fixedPointKind: report.kind };
+                if (report.points.length > 0) {
+                    out.fixedPoints = report.points.map((point) => ({ ...pointOf(point, places), multiplicity }));
+                }
+                if (report.excluded.length > 0) {
+                    out.excludedFixedPoints = report.excluded.map((point) => pointOf(point, places));
+                }
+                const notes = [];
+                if (report.kind === 'every_point')
+                    notes.push('the identity map: every complex number is fixed');
+                if (report.kind === 'none')
+                    notes.push('a translation (c = 0, a = d, b ≠ 0): no finite fixed point, the fixed point is the point at infinity');
+                if (report.kind === 'repeated')
+                    notes.push('one repeated fixed point (the discriminant of c z² + (d − a) z − b is 0)');
+                if (report.kind === 'repeated' && !invertible)
+                    notes.push('ad − bc = 0: the map is degenerate, and the repeated root is the constant value it collapses to');
+                if (report.excluded.length > 0)
+                    notes.push('a root of the fixed-point equation is also the pole (c z + d = 0), where the map is undefined, so it is reported under excludedFixedPoints instead of being counted as fixed');
+                if (notes.length > 0)
+                    out.note = notes.join('; ');
+                return out;
+            }
+            if (args.z === undefined) {
+                return { valid: false, error: `z is required for the ${args.operation} operation` };
+            }
+            const parsedZ = parseComplex(args.z, places);
+            if (!parsedZ.valid)
+                return { valid: false, error: `z: ${parsedZ.error}` };
+            const zPoint = mobiusPoint(parsedZ.z, places);
+            if (args.operation === 'inverse') {
+                if (!invertible) {
+                    return { valid: false, error: 'ad − bc = 0: the map is degenerate (a constant rather than a bijection), so no image point has a unique preimage; run apply to see the constant' };
+                }
+                const preimage = mobiusInversePoint(map, parsedZ.z);
+                const out = { ...base, z: zPoint };
+                if (preimage === null) {
+                    out.atPole = true;
+                    out.note = `a − c w = 0: w = ${formatRect(parsedZ.z, places)} is the image of the point at infinity, so it has no finite preimage`;
+                    return out;
+                }
+                out.preimage = mobiusPoint(preimage, places);
+                return out;
+            }
+            const out = { ...base, z: zPoint };
+            if (!invertible) {
+                const constant = mobiusConstant(map);
+                out.degenerate = true;
+                if (constant !== null)
+                    out.constant = pointOf(constant, places);
+                const notes = ['ad − bc = 0: the map is degenerate — every point in its domain maps to the same value (reported in constant), so no w field is given'];
+                if (mobiusApply(map, parsedZ.z) === null) {
+                    out.atPole = true;
+                    notes.push(`z = ${formatRect(parsedZ.z, places)} is the pole (c z + d = 0), where even the constant map is undefined`);
+                }
+                out.note = notes.join('; ');
+                return out;
+            }
+            const w = mobiusApply(map, parsedZ.z);
+            if (w === null) {
+                out.atPole = true;
+                out.note = `z = ${formatRect(parsedZ.z, places)} is the pole (c z + d = 0): the map is undefined there and z maps to the point at infinity, so no w field is given`;
+                return out;
+            }
+            out.w = mobiusPoint(w, places);
+            const denominator = add(multiply(pc, parsedZ.z), pd);
+            const derivative = divide(determinant, multiply(denominator, denominator));
+            if (derivative !== null)
+                out.derivative = pointOf(derivative, places);
+            out.note = "derivative w' = (ad − bc)/(c z + d)² is the local stretch-and-rotate factor at z";
+            return out;
+        },
+    });
+    return { complex_parse, complex_calc, complex_convert, complex_functions, complex_roots, complex_quadratic, complex_poly, complex_mobius };
 }
 //# sourceMappingURL=tools.js.map

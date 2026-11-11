@@ -195,4 +195,59 @@ export interface PolyRootOptions {
  * `null` when the input is not a genuine degree-≥1 polynomial.
  */
 export declare function polynomialRoots(coeffs: Complex[], options?: PolyRootOptions): PolyRootReport | null;
+/**
+ * Möbius (fractional-linear) transformations (v0.4.0): M(z) = (a z + b)/(c z + d)
+ * with ad − bc ≠ 0. Everything here is plain complex arithmetic on the same
+ * primitives as the rest of the module; the interesting part is the honest
+ * reporting of the three things that make a Möbius map non-obvious:
+ *
+ *   - the pole z = −d/c, where the map is undefined (z maps to ∞),
+ *   - the degenerate case ad − bc = 0, where the "map" collapses to a constant,
+ *   - fixed points, which come from c z² + (d − a) z − b = 0 and therefore can
+ *     pick up the pole as an extraneous root when the map is degenerate.
+ */
+/** Coefficients of M(z) = (a z + b)/(c z + d). */
+export interface MobiusMap {
+    a: Complex;
+    b: Complex;
+    c: Complex;
+    d: Complex;
+}
+/** How many fixed points a Möbius map has (or why it has none). */
+export type MobiusFixedKind = 'two' | 'repeated' | 'one' | 'every_point' | 'none';
+export interface MobiusFixedReport {
+    kind: MobiusFixedKind;
+    points: Complex[];
+    /** Roots of the fixed-point equation that are the pole, i.e. not in the domain. */
+    excluded: Complex[];
+}
+/** ad − bc. Zero ⇔ the map is not invertible (it collapses to a constant). */
+export declare function mobiusDeterminant(m: MobiusMap): Complex;
+/**
+ * Apply the map. Returns `null` at the pole (denominator zero): the honest
+ * answer is "undefined / ∞", not a huge number.
+ */
+export declare function mobiusApply(m: MobiusMap, z: Complex): Complex | null;
+/**
+ * The preimage of w: M⁻¹(w) = (d w − b)/(a − c w). Returns `null` when a − c w = 0
+ * (the preimage is the point at infinity, i.e. w is the image of nothing finite).
+ */
+export declare function mobiusInversePoint(m: MobiusMap, w: Complex): Complex | null;
+/** M₁ ∘ M₂ (apply M₂ first). Coefficients are the matrix product; det multiplies. */
+export declare function mobiusCompose(outer: MobiusMap, inner: MobiusMap): MobiusMap;
+/**
+ * Fixed points of M: solve c z² + (d − a) z − b = 0, which is exact (it is
+ * z(cz + d) = az + b, no division). The c = 0 family is linear:
+ *   - a = d, b = 0 → the identity: every point is fixed;
+ *   - a = d, b ≠ 0 → a translation: no fixed point;
+ *   - a ≠ d       → the single point b/(d − a).
+ * Roots that are simultaneously the pole are returned in `excluded`, because the
+ * map is undefined there — this only happens for degenerate maps, where the
+ * fixed-point equation picks up the pole as an extraneous root.
+ */
+export declare function mobiusFixedPoints(m: MobiusMap): MobiusFixedReport;
+/** The constant a degenerate (ad − bc = 0) map collapses to; `null` if undefined everywhere. */
+export declare function mobiusConstant(m: MobiusMap): Complex | null;
+/** True when the coefficients are all zero (the map is undefined for every z). */
+export declare function mobiusIsZero(m: MobiusMap): boolean;
 //# sourceMappingURL=complex.d.ts.map

@@ -6,7 +6,7 @@ DeepSeek Harness (dsh) 的复数数学工具箱插件。
 
 大模型手算复数极易出错（i² 符号、极坐标转换、欧拉公式、n 次方根、反函数主值、分支切割、复系数方程）。本插件用确定性闭式公式在主值分支上完成复数计算，全部为本地纯算术、零运行时依赖（仅 Math.* 与字符串解析），输出统一舍入到 10 位小数（可配）。
 
-## 工具（7 个）
+## 工具（8 个）
 
 - `complex_parse`：解析复数字符串（`"3+4i"`、`"-2i"`、`"5∠53.13°"`，i/j 均可、系数 1 可省略）→ 完整身份（直角/极坐标/指数形式、模、辐角 rad 与 deg、共轭）。
 - `complex_calc`：加 / 减 / 乘 / 除 / 共轭 / 倒数 / 整数幂（De Moivre，指数 −1000..1000）/ **任意复幂** `pow`（`a^b = exp(b·log a)`，两个操作数都可为复数，如 `i^i`、`2^(1+i)`、`(-1)^0.5`），结果三种形式齐全。
@@ -15,6 +15,7 @@ DeepSeek Harness (dsh) 的复数数学工具箱插件。
 - `complex_poly`：**复系数**多项式的求值与求根（系数按最高次在前）。`evaluate` 用 Horner 法给出 `p(z)` 与 `p'(z)`；`roots` 用 Durand–Kerner 迭代给出全部根（次数 ≤ 12），每个根附回代残差与真实的 `converged` 标记。整数根原样返回；`(z − 1)²` 这类重根只报一次并标出重数，而不是给出两个几乎相同的数；迭代未达步长容差时如实标注，不冒充精确解。
 - `complex_roots`：全部 n 个 n 次方根（n = 1..64），从主根起按 k 序排列。
 - `complex_quadratic`：求 **复系数** 二次方程 `a z² + b z + c = 0`：判别式、两个根（主平方根那支在前）、韦达不变量 −b/a 与 c/a，以及每个根的回代残差 `|a z² + b z + c|`（答案自检）。a = 0 退化为一次方程；a = b = 0 时如实报「任意复数皆解」或「无解」。
+- `complex_mobius`：莫比乌斯（分式线性）变换 `M(z) = (a z + b)/(c z + d)`：`apply` 映射一个点并给出导数 `(ad − bc)/(c z + d)²`；`inverse` 由一个像点反求原像；`fixed_points` 解 `z = M(z)`（两个不动点 / 一个二重不动点 / 一个不动点 / 恒等映射的「处处不动」/ 平移的「无有限不动点」）；`compose` 复合两个变换。三个坑如实报而不糊过去：`z = −d/c` 是极点（`atPole`，不给 w 字段）；`ad − bc = 0` 表示映射退化（给 `constant`，不给 w）；退化时不动点方程会把极点当多余根解出来（列进 `excludedFixedPoints`，不静默丢掉）。
 
 ## 安装
 
@@ -25,7 +26,7 @@ dsh plugin --profile web add github:TYEclipse/dsh-complex
 版本锁定：
 
 ```bash
-dsh plugin --profile web add github:TYEclipse/dsh-complex#v0.2.0
+dsh plugin --profile web add github:TYEclipse/dsh-complex#v0.4.0
 ```
 
 要求 Node ≥ 20；零运行时依赖。
@@ -51,6 +52,9 @@ dsh plugin --profile web add github:TYEclipse/dsh-complex#v0.2.0
 - `z³ − 1 = 0` → `1`、`-0.5±0.8660254038i`（三个三次单位根）
 - `(z − 1)² = 0` → `1`（重数 2）；`z⁴ − z³ + z − 4` 之类高次方程同样直接给根与残差
 - `p(z) = z² − 1` 在 `z = 1+i` 处：`p = -1+2i`、`p' = 2+2i`
+- `M(z) = (z − i)/(z + i)` 在 `z = 1+i` 处：`M = 0.2-0.4i`，导数 `0.32-0.24i`；不动点 `1.3660254038-1.3660254038i` 与 `-0.3660254038+0.3660254038i`
+- `M(z) = (z − i)/(z + i)` 反查 `w = 0.2-0.4i` 的原像 → `1+1i`；`w = 1` 处 `a − c w = 0`，如实报「无有限原像」
+- `M(z) = (z + 1)/(z − 1)` 在 `z = 1` 处是极点 → `atPole`，不给 w；`(z + i)/(i z − 1)` 因 `ad − bc = 0` 退化为常数 `-i`
 
 ## 开发
 
@@ -58,7 +62,7 @@ dsh plugin --profile web add github:TYEclipse/dsh-complex#v0.2.0
 pnpm install && pnpm build && pnpm test && pnpm lint
 ```
 
-181 个测试全绿，全部锚点由随仓提交的独立 Python `cmath` oracle（`test/oracle/anchors.py`，权威参考实现；网格覆盖四条分支切割）生成，另含 schema 层枚举拒绝与递归无 undefined（lossless-JSON）断言。
+235 个测试全绿，全部锚点由随仓提交的独立 Python `cmath` oracle（`test/oracle/anchors.py`，权威参考实现；网格覆盖四条分支切割，以及莫比乌斯映射的极点与退化情形）生成，另含 schema 层枚举拒绝与递归无 undefined（lossless-JSON）断言。
 
 ## 许可证
 

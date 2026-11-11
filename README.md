@@ -1,8 +1,8 @@
 # dsh-complex ➗➕
 
-Complex-number math toolbox for [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness). Seven pure-math tools that do complex arithmetic correctly on the principal branch, so the agent never has to hand-track `i² = -1` bookkeeping, Euler formulas, polar conversions, branch cuts, or polynomial roots.
+Complex-number math toolbox for [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness). Eight pure-math tools that do complex arithmetic correctly on the principal branch, so the agent never has to hand-track `i² = -1` bookkeeping, Euler formulas, polar conversions, branch cuts, polynomial roots, or fractional-linear maps.
 
-> 中文简介：dsh-complex 是 DeepSeek Harness 的复数数学工具箱插件，提供 7 个纯计算工具（复数解析、四则运算与任意复幂、极坐标↔直角坐标互转、初等与反函数主值、n 次方根全集、复系数二次方程求解、多项式求值与全部根），零运行时依赖、纯本地算术。适合让 Agent 直接完成「复数乘除、极坐标转换、欧拉公式、n 次方根、反三角/反双曲主值、分支切割、复系数二次方程」等手算极易出错的计算。
+> 中文简介：dsh-complex 是 DeepSeek Harness 的复数数学工具箱插件，提供 8 个纯计算工具（复数解析、四则运算与任意复幂、极坐标↔直角坐标互转、初等与反函数主值、n 次方根全集、复系数二次方程求解、多项式求值与全部根、莫比乌斯（分式线性）变换），零运行时依赖、纯本地算术。适合让 Agent 直接完成「复数乘除、极坐标转换、欧拉公式、n 次方根、反三角/反双曲主值、分支切割、复系数二次方程、分式线性映射的不动点与复合」等手算极易出错的计算。
 
 ## Why
 
@@ -19,6 +19,7 @@ LLMs reliably botch complex arithmetic: `(3+4i)(1-2i)`, `exp(iπ)`, `log(-1)`, `
 | `complex_roots` | All n n-th roots (n = 1..64): r^(1/n)·(cos((θ+2πk)/n) + i·sin((θ+2πk)/n)), k = 0..n−1, listed from the principal root. |
 | `complex_poly` | Polynomials with **complex** coefficients, highest power first: `evaluate` returns `p(z)` and `p'(z)` (Horner), `roots` returns every root up to degree 12 (Durand–Kerner) with each root's residual and a real `converged` flag. Integer roots come back exact; a multiple root such as `(z − 1)²` is reported once with multiplicity 2 instead of two near-identical numbers, and a run that misses its step tolerance says so. |
 | `complex_quadratic` | Solve `a z² + b z + c = 0` with **complex** coefficients: discriminant, both roots (principal square root first), the Vieta invariants −b/a and c/a, and each root's residual `|a z² + b z + c|` so the answer is self-checking. `a = 0` degrades to the linear equation; `a = b = 0` reports "every z" or "no solution" honestly. |
+| `complex_mobius` | Möbius (fractional-linear) maps `M(z) = (a z + b)/(c z + d)`: `apply` maps a point and gives the derivative `(ad − bc)/(c z + d)²`, `inverse` returns a preimage, `fixed_points` solves `z = M(z)` (two points, one repeated point, one point, every point for the identity, or none for a translation), `compose` multiplies two maps. Three traps are reported instead of papered over: `z = −d/c` is a pole (`atPole`, with no `w` field), `ad − bc = 0` means the map is degenerate (one `constant`, no `w`), and the fixed-point equation can pick up the pole as an extraneous root (listed under `excludedFixedPoints`). |
 
 Every value is deterministic: computations keep raw IEEE doubles and round/snap floating-point dust only at the output boundary (10 decimal places by default, configurable via `plugins.complex.roundPlaces`).
 
@@ -31,7 +32,7 @@ dsh plugin --profile web add github:TYEclipse/dsh-complex
 Pin a specific version:
 
 ```bash
-dsh plugin --profile web add github:TYEclipse/dsh-complex#v0.2.0
+dsh plugin --profile web add github:TYEclipse/dsh-complex#v0.4.0
 ```
 
 Or install through the DSH web GUI plugin browser / any dsh plugin marketplace by searching `dsh-complex` (topic `dsh-plugin`).
@@ -108,6 +109,28 @@ complex_poly(coefficients=["1","-1","1","-4"], operation="roots")
 → 1, i, -i, -1                                    (z⁴ − 1)
 ```
 
+### Fractional-linear (Möbius) maps
+
+```
+complex_mobius(a="1", b="-i", c="1", d="i", operation="apply", z="1+i")
+→ M(1+1i) = 0.2-0.4i   (|w| = 0.4472135955, arg = -63.4349488229°, w' = 0.32-0.24i)
+
+complex_mobius(a="1", b="-i", c="1", d="i", operation="fixed_points")
+→ two fixed points: 1.3660254038-1.3660254038i, -0.3660254038+0.3660254038i
+
+complex_mobius(a="1", b="-i", c="1", d="i", operation="inverse", z="0.2-0.4i")
+→ preimage of w = 0.2-0.4i is z = 1+1i
+
+complex_mobius(a="1", b="-i", c="1", d="i", operation="compose", a2="2", b2="1", c2="1", d2="-i")
+→ (M ∘ N)(z) = (2-1i z + 0)/(2+1i z + 2), det = 4-2i
+
+complex_mobius(a="1", b="1", c="1", d="-1", operation="apply", z="1")
+→ atPole: 1 is the pole, the map is undefined there (no w field)
+
+complex_mobius(a="1", b="i", c="i", d="-1", operation="apply", z="3+2i")
+→ degenerate (ad − bc = 0): every defined point maps to -i (constant field, no w)
+```
+
 ### Conventions
 
 - Input grammar: `a+bi` (or `a-bi`, `bi`, `a`, bare `i`; `j` also accepted; whitespace around the operator and the suffix is tolerated; scientific notation works; the imaginary coefficient may be omitted — `1+i` is `1+1i`).
@@ -133,7 +156,7 @@ pnpm test
 pnpm lint
 ```
 
-181 tests, all anchored by an independent Python `cmath` oracle (`test/oracle/anchors.py` — the reference implementation, which prints every anchor over a grid that includes all four branch cuts), plus schema-level enum rejection and recursive no-undefined (lossless-JSON) assertions on every tool result.
+235 tests, all anchored by an independent Python `cmath` oracle (`test/oracle/anchors.py` — the reference implementation, which prints every anchor over a grid that includes all four branch cuts and the degenerate/pole cases of the Möbius maps), plus schema-level enum rejection and recursive no-undefined (lossless-JSON) assertions on every tool result.
 
 ## License
 

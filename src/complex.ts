@@ -562,3 +562,131 @@ export function polynomialRoots(coeffs: Complex[], options: PolyRootOptions = {}
 
   return { roots, converged, iterations, maxStep }
 }
+
+/**
+ * Möbius (fractional-linear) transformations (v0.4.0): M(z) = (a z + b)/(c z + d)
+ * with ad − bc ≠ 0. Everything here is plain complex arithmetic on the same
+ * primitives as the rest of the module; the interesting part is the honest
+ * reporting of the three things that make a Möbius map non-obvious:
+ *
+ *   - the pole z = −d/c, where the map is undefined (z maps to ∞),
+ *   - the degenerate case ad − bc = 0, where the "map" collapses to a constant,
+ *   - fixed points, which come from c z² + (d − a) z − b = 0 and therefore can
+ *     pick up the pole as an extraneous root when the map is degenerate.
+ */
+
+/** Coefficients of M(z) = (a z + b)/(c z + d). */
+export interface MobiusMap {
+  a: Complex
+  b: Complex
+  c: Complex
+  d: Complex
+}
+
+/** How many fixed points a Möbius map has (or why it has none). */
+export type MobiusFixedKind = 'two' | 'repeated' | 'one' | 'every_point' | 'none'
+
+export interface MobiusFixedReport {
+  kind: MobiusFixedKind
+  points: Complex[]
+  /** Roots of the fixed-point equation that are the pole, i.e. not in the domain. */
+  excluded: Complex[]
+}
+
+/** ad − bc. Zero ⇔ the map is not invertible (it collapses to a constant). */
+export function mobiusDeterminant(m: MobiusMap): Complex {
+  return subtract(multiply(m.a, m.d), multiply(m.b, m.c))
+}
+
+/** |cz + d| relative to the size of its two terms — the pole test. */
+function denominatorIsZero(m: MobiusMap, z: Complex): boolean {
+  const cz = multiply(m.c, z)
+  const denominator = add(cz, m.d)
+  const scale2 = Math.max(1, modulus(cz) + modulus(m.d))
+  return modulus(denominator) <= 1e-12 * scale2
+}
+
+/**
+ * Apply the map. Returns `null` at the pole (denominator zero): the honest
+ * answer is "undefined / ∞", not a huge number.
+ */
+export function mobiusApply(m: MobiusMap, z: Complex): Complex | null {
+  if (denominatorIsZero(m, z)) return null
+  return divide(add(multiply(m.a, z), m.b), add(multiply(m.c, z), m.d))
+}
+
+/**
+ * The preimage of w: M⁻¹(w) = (d w − b)/(a − c w). Returns `null` when a − c w = 0
+ * (the preimage is the point at infinity, i.e. w is the image of nothing finite).
+ */
+export function mobiusInversePoint(m: MobiusMap, w: Complex): Complex | null {
+  const numerator = subtract(multiply(m.d, w), m.b)
+  const denominator = subtract(m.a, multiply(m.c, w))
+  const cw = multiply(m.c, w)
+  const scale2 = Math.max(1, modulus(cw) + modulus(m.a))
+  if (modulus(denominator) <= 1e-12 * scale2) return null
+  return divide(numerator, denominator)
+}
+
+/** M₁ ∘ M₂ (apply M₂ first). Coefficients are the matrix product; det multiplies. */
+export function mobiusCompose(outer: MobiusMap, inner: MobiusMap): MobiusMap {
+  return {
+    a: add(multiply(outer.a, inner.a), multiply(outer.b, inner.c)),
+    b: add(multiply(outer.a, inner.b), multiply(outer.b, inner.d)),
+    c: add(multiply(outer.c, inner.a), multiply(outer.d, inner.c)),
+    d: add(multiply(outer.c, inner.b), multiply(outer.d, inner.d)),
+  }
+}
+
+/**
+ * Fixed points of M: solve c z² + (d − a) z − b = 0, which is exact (it is
+ * z(cz + d) = az + b, no division). The c = 0 family is linear:
+ *   - a = d, b = 0 → the identity: every point is fixed;
+ *   - a = d, b ≠ 0 → a translation: no fixed point;
+ *   - a ≠ d       → the single point b/(d − a).
+ * Roots that are simultaneously the pole are returned in `excluded`, because the
+ * map is undefined there — this only happens for degenerate maps, where the
+ * fixed-point equation picks up the pole as an extraneous root.
+ */
+export function mobiusFixedPoints(m: MobiusMap): MobiusFixedReport {
+  if (m.c.re === 0 && m.c.im === 0) {
+    const sameScale = m.d.re === m.a.re && m.d.im === m.a.im
+    if (sameScale) {
+      if (m.b.re === 0 && m.b.im === 0) return { kind: 'every_point', points: [], excluded: [] }
+      return { kind: 'none', points: [], excluded: [] }
+    }
+    const point = divide(m.b, subtract(m.d, m.a))
+    return point === null
+      ? { kind: 'none', points: [], excluded: [] }
+      : { kind: 'one', points: [point], excluded: [] }
+  }
+
+  const solution = solveQuadratic(m.c, subtract(m.d, m.a), negate(m.b))
+  const points: Complex[] = []
+  const excluded: Complex[] = []
+  for (const root of solution.roots) {
+    const target = denominatorIsZero(m, root) ? excluded : points
+    const duplicate = target.some((p) => modulus(subtract(p, root)) <= 1e-12 * Math.max(1, modulus(root)))
+    if (!duplicate) target.push(root)
+  }
+  const disc = solution.discriminant
+  const discScale = Math.max(1, modulus(m.b) * modulus(m.b), 4 * modulus(m.a) * modulus(m.c))
+  const repeated = disc !== null && modulus(disc) <= 1e-12 * discScale
+  const kind: MobiusFixedKind = points.length === 0
+    ? 'none'
+    : repeated && points.length === 1 ? 'repeated' : points.length === 1 ? 'one' : 'two'
+  return { kind, points, excluded }
+}
+
+/** The constant a degenerate (ad − bc = 0) map collapses to; `null` if undefined everywhere. */
+export function mobiusConstant(m: MobiusMap): Complex | null {
+  const cdZero = (m.c.re === 0 && m.c.im === 0) && (m.d.re === 0 && m.d.im === 0)
+  if (cdZero) return null
+  if (!(m.c.re === 0 && m.c.im === 0)) return divide(m.a, m.c)
+  return divide(m.b, m.d)
+}
+
+/** True when the coefficients are all zero (the map is undefined for every z). */
+export function mobiusIsZero(m: MobiusMap): boolean {
+  return [m.a, m.b, m.c, m.d].every((v) => v.re === 0 && v.im === 0)
+}

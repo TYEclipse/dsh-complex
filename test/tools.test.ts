@@ -31,9 +31,9 @@ describe('resolveConfig', () => {
 describe('buildComplexTools', () => {
   const tools = buildComplexTools(resolveConfig({}))
 
-  it('exposes all seven tools under their canonical names', () => {
+  it('exposes all eight tools under their canonical names', () => {
     expect(Object.keys(tools).sort()).toEqual(
-      ['complex_calc', 'complex_convert', 'complex_functions', 'complex_parse', 'complex_poly', 'complex_quadratic', 'complex_roots'].sort(),
+      ['complex_calc', 'complex_convert', 'complex_functions', 'complex_mobius', 'complex_parse', 'complex_poly', 'complex_quadratic', 'complex_roots'].sort(),
     )
   })
 

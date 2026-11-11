@@ -1,5 +1,5 @@
 /**
- * Tool definitions for dsh-complex: six pure-math tools exposed via defineTool.
+ * Tool definitions for dsh-complex: eight pure-math tools exposed via defineTool.
  *   complex_parse      — parse "3+4i" / "5∠53.13°" into a full summary
  *   complex_calc       — add / subtract / multiply / divide / conjugate / reciprocal / power / pow
  *   complex_convert    — polar <-> rectangular conversion
@@ -7,6 +7,7 @@
  *   complex_roots      — all n n-th roots of a complex number
  *   complex_quadratic  — solve a z² + b z + c = 0 over the complex numbers
  *   complex_poly       — evaluate a polynomial and find all of its roots
+ *   complex_mobius     — Möbius transformations: apply / inverse / fixed points / compose
  *
  * @module dsh-complex/tools
  */
@@ -20,6 +21,7 @@ export interface ToolSet {
     complex_roots: ToolDefinition;
     complex_quadratic: ToolDefinition;
     complex_poly: ToolDefinition;
+    complex_mobius: ToolDefinition;
 }
 /** Build all seven complex tool definitions from the resolved config. */
 export declare function buildComplexTools(config: ResolvedConfig): ToolSet;

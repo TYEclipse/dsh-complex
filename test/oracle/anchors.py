@@ -379,8 +379,132 @@ def section_e():
             check(f"   Vieta product ({label})", rc(prod), rc(((-1) ** deg) * p[-1] / lead), tol=1e-9)
 
 
+# --------------------------------------------------------------------------
+# F. complex_mobius v0.4.0 — apply / inverse / fixed points / compose
+# --------------------------------------------------------------------------
+
+def mob_apply(a, b, c, d, z):
+    return (a * z + b) / (c * z + d)
+
+
+def mob_det(a, b, c, d):
+    return a * d - b * c
+
+
+def mob_fixed(a, b, c, d):
+    """Roots of c z^2 + (d - a) z - b = 0, computed with cmath.sqrt."""
+    if c == 0:
+        if d == a:
+            return []
+        return [b / (d - a)]
+    disc = (d - a) ** 2 + 4 * c * b
+    root = cmath.sqrt(disc)
+    return [(-(d - a) + root) / (2 * c), (-(d - a) - root) / (2 * c)]
+
+
+MOBIUS_APPLY = [
+    # label, a, b, c, d, z
+    ("cayley at 1+i", 1, -1j, 1, 1j, 1 + 1j),
+    ("(2z+1)/(z-i) at 1", 2, 1, 1, -1j, 1 + 0j),
+    ("(z+1)/(z-1) at 2", 1, 1, 1, -1, 2 + 0j),
+    ("identity at 2+3i", 1, 0, 0, 1, 2 + 3j),
+    ("translation at 2+3i", 1, 1, 0, 1, 2 + 3j),
+    ("degenerate at 3+2i", 1, 1j, 1j, -1, 3 + 2j),
+    ("two-point swap style at 1+2i", 1, -1j, 2, 1, 1 + 2j),
+]
+
+
+def section_f():
+    section("F. complex_mobius v0.4.0 — apply / inverse / fixed points / compose")
+
+    for label, a, b, c, d, z in MOBIUS_APPLY:
+        print(f"-- apply {label}: ({a}) z + ({b}) over ({c}) z + ({d}) at z = {z} --")
+        show("   determinant ad - bc", mob_det(a, b, c, d))
+        w = mob_apply(a, b, c, d, z)
+        show("   w = M(z)", w)
+        denominator = c * z + d
+        show("   c z + d", denominator)
+        show("   derivative (ad-bc)/(cz+d)^2", mob_det(a, b, c, d) / denominator ** 2)
+        show("   |w|", abs(w))
+        show("   arg(w) in degrees", math.degrees(cmath.phase(w)))
+        show("   |z|", abs(z))
+        show("   arg(z) in degrees", math.degrees(cmath.phase(z)))
+        # invariant: w = (a z + b)/(c z + d) restated as cz*w + d*w = az + b
+        check(f"   M(z) satisfies c w z + d w = a z + b ({label})",
+              rc(c * w * z + d * w), rc(a * z + b), tol=1e-12)
+
+    print("-- pole: (z + 1)/(z - 1) at z = 1 --")
+    show("   c z + d at z = 1", 1 * 1 + (-1))
+    print("   -> the map is undefined there (the honest answer, not a huge number)")
+
+    print("-- degenerate: (z + i)/(i z - 1) at z = 3 + 2i --")
+    a, b, c, d = 1, 1j, 1j, -1
+    show("   determinant", mob_det(a, b, c, d))
+    show("   constant a/c", a / c)
+    show("   constant b/d", b / d)
+    check("   degenerate constant: a/c == b/d", rc(a / c), rc(b / d), tol=1e-15)
+    show("   M(3+2i)", mob_apply(a, b, c, d, 3 + 2j))
+
+    print("-- inverse: cayley, preimage of w = 0.2 - 0.4i --")
+    a, b, c, d = 1, -1j, 1, 1j
+    w = 0.2 - 0.4j
+    pre = (d * w - b) / (a - c * w)
+    show("   preimage (d w - b)/(a - c w)", pre)
+    check("   round trip M(preimage) = w", rc(mob_apply(a, b, c, d, pre)), rc(w), tol=1e-12)
+    print("-- inverse: w = a/c = 1 has no finite preimage (a - c w = 0) --")
+    show("   a - c w at w = 1", a - c * 1)
+
+    print("-- fixed points --")
+    FIXED = [
+        ("cayley", 1, -1j, 1, 1j),
+        ("(2z+1)/(z-i)", 2, 1, 1, -1j),
+        ("identity", 1, 0, 0, 1),
+        ("translation", 1, 1, 0, 1),
+        ("c = 0, d != a", 2, 3, 0, 1),
+        ("repeated (degenerate)", 1, 1j, 1j, -1),
+        ("repeated (invertible)", 0, -1, 1, 2),
+    ]
+    for label, a, b, c, d in FIXED:
+        print(f"-- fixed points {label}: ({a}) z + ({b}) over ({c}) z + ({d}) --")
+        print(f"   determinant = {rc(mob_det(a, b, c, d))}")
+        roots = mob_fixed(a, b, c, d)
+        if not roots:
+            print("   no finite fixed point (identity has every point fixed; a translation has none)")
+            continue
+        for i, root in enumerate(roots):
+            show(f"   root[{i}]", root)
+            pole = abs(c * root + d) <= 1e-12 * max(1.0, abs(c * root) + abs(d))
+            show(f"   c*root[{i}] + d (0 means root is the pole)", c * root + d)
+            if pole:
+                # The fixed-point equation z(cz + d) = az + b also collects the
+                # pole when the map is degenerate (ad - bc = 0): the root is not
+                # in the domain, so it is excluded rather than reported as fixed.
+                print(f"   -> root[{i}] is the pole: excluded (the map is undefined there)")
+                continue
+            show(f"   M(root[{i}])", mob_apply(a, b, c, d, root))
+            check(f"   root[{i}] is fixed ({label})", rc(mob_apply(a, b, c, d, root)), rc(root), tol=1e-9)
+        if len(roots) == 2:
+            check(f"   sum of roots = -(d - a)/c ({label})",
+                  rc(roots[0] + roots[1]), rc(-(d - a) / c), tol=1e-9)
+            check(f"   product of roots = -b/c ({label})",
+                  rc(roots[0] * roots[1]), rc(-b / c), tol=1e-9)
+
+    print("-- compose: M = cayley, N = (2z + 1)/(z - i) --")
+    M = (1, -1j, 1, 1j)
+    N = (2, 1, 1, -1j)
+    comp = (M[0] * N[0] + M[1] * N[2], M[0] * N[1] + M[1] * N[3],
+            M[2] * N[0] + M[3] * N[2], M[2] * N[1] + M[3] * N[3])
+    print(f"   composed coefficients a,b,c,d = {[rc(x) for x in comp]}")
+    show("   det(M∘N)", mob_det(*comp))
+    check("   det(M∘N) = det(M)·det(N)", rc(mob_det(*comp)), rc(mob_det(*M) * mob_det(*N)), tol=1e-12)
+    z = 1 + 2j
+    show("   (M∘N)(1+2i)", mob_apply(*comp, z))
+    check("   (M∘N)(z) = M(N(z))", rc(mob_apply(*comp, z)),
+          rc(mob_apply(*M, mob_apply(*N, z))), tol=1e-12)
+
+
 def main():
-    for fn in (section_a, section_b, section_c, section_d, section_e):
+    for fn in (section_a, section_b, section_c, section_d, section_e, section_f):
         fn()
     print()
     print("=" * 104)
@@ -390,7 +514,8 @@ def main():
             for f in FAILS:
                 print("  - " + f)
             return 1
-        print("self-check: all invariants hold (roots satisfy the polynomial, powers match CPython **)")
+        print("self-check: all invariants hold (roots satisfy the polynomial, powers match CPython **, "
+              "Möbius fixed points are fixed and compositions agree)")
     else:
         print("(run with --check to verify the invariants)")
     return 0

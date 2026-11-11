@@ -2,6 +2,18 @@
 
 > 版本口径：patch 修 bug/补测试｜minor 新增用户可见功能｜major 破坏性变更。安装：`dsh plugin --profile web add github:TYEclipse/dsh-complex`
 
+## [0.4.0] — 2026-11-12
+### Minor · R97（维护轮换：距上次功能版 21 天，最久未发功能版）
+- **新工具 `complex_mobius`（第八个工具）**：莫比乌斯（分式线性）变换 `M(z) = (a z + b)/(c z + d)`，系数为任意复数字符串。
+  - `apply`：映射一个点，给出 `w`（含模与辐角）与导数 `w' = (ad − bc)/(c z + d)²`。
+  - `inverse`：由像点 `w` 反求原像 `(d w − b)/(a − c w)`。
+  - `fixed_points`：解 `z = M(z)`，即 `c z² + (d − a) z − b = 0`——判别式非零给两个点、为零给一个 **重数 2** 的点；`c = 0` 家族按定义给「一个点（a ≠ d）」「处处不动（恒等）」「无有限不动点（平移）」。
+  - `compose`：给出 `M ∘ N` 的四个系数（**先作用 N**）与其行列式（= det M · det N）。
+- **三个坑如实报，不糊过去**：① `z = −d/c` 是极点 —— `atPole: true` 且**不给 `w` 字段**（不是给个巨大的数）；② `ad − bc = 0` 表示映射退化 —— `degenerate: true` + `constant`（所有点映到同一值）+ 不给 `w`；③ 退化时不动点方程会把极点当**多余根**解出来 —— 该根列进 `excludedFixedPoints` 并注明「映射在那里无定义」，不静默当成不动点。
+- **期望值出处**：`test/oracle/anchors.py` 新增 F 区（CPython 复数算术独立实现）——逐条打印每个断言的 `w`、导数、模、辐角、不动点（每根回代验证 `M(root) = root`）、复合系数；`--check` 断言 `root 是不动点`、`M(preimage) = w`、`det(M∘N) = det M · det N`、`(M∘N)(z) = M(N(z))`，并**显式走过极点/退化点**（退化例的不动点根恰是极点，oracle 因此打印「excluded」而不是除零崩溃）。
+- 测试 **207 → 235**（新增 `test/mobius.test.ts` 28 条：四个操作、极点、退化、二重不动点、恒等/平移、校验错误、渲染文本）；覆盖率 **94.20% → 94.39%**（基线棘轮上调）。
+- 文档同步：README 中英双语（工具表 + 示例 + 约定）、`package.json` 描述与 topics（`mobius-transformation` / `fractional-linear` / `conformal-mapping`）、安装钉版本示例更新到 `#v0.4.0`。
+
 ## [0.3.0] — 2026-10-23
 ### Minor · R77
 - **新工具 `complex_poly`（第七个工具）**：复系数多项式，系数按最高次在前（`["1","0","-1"]` 即 z² − 1）。

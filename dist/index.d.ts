@@ -1,7 +1,7 @@
 /**
  * dsh-complex — complex-number math toolbox for DeepSeek Harness.
  *
- * Six pure-math tools, zero runtime dependencies:
+ * Seven pure-math tools, zero runtime dependencies:
  *   complex_parse      — parse "3+4i" / "5∠53.13°" into a full summary
  *   complex_calc       — add / subtract / multiply / divide / conjugate / reciprocal / integer power / complex power
  *   complex_convert    — polar <-> rectangular conversion
@@ -9,6 +9,7 @@
  *   complex_roots      — all n n-th roots of a complex number
  *   complex_quadratic  — solve a z² + b z + c = 0 with complex coefficients
  *   complex_poly       — evaluate a polynomial (with derivative) and find all roots
+ *   complex_mobius     — Möbius maps: apply / inverse / fixed points / compose
  *
  * All computation is closed-form local arithmetic on the principal branch;
  * no network, no processes, no eval.
